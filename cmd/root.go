@@ -57,7 +57,6 @@ var rootCmd = &Command{
 				inputprompt = inputprompt + txt + " "
 				fmt.Printf("%s", aec.Up(1))
 				fmt.Printf("%s", aec.EraseLine(aec.EraseModes.All))
-				fmt.Printf("%s", aec.
 
 				txt = prompt.Input(inputprompt, generalCompleter)
 			}
