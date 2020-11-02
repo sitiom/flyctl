@@ -18,6 +18,7 @@ require (
 	github.com/buildpacks/imgutil v0.0.0-20200520132953-ba4f77a60397 // indirect
 	github.com/buildpacks/lifecycle v0.7.5 // indirect
 	github.com/buildpacks/pack v0.10.0
+	github.com/c-bata/go-prompt v0.2.4
 	github.com/containerd/console v1.0.0
 	github.com/docker/docker v1.4.2-0.20200227233006-38f52c9fec82
 	github.com/dustin/go-humanize v1.0.0
@@ -32,7 +33,10 @@ require (
 	github.com/logrusorgru/aurora v0.0.0-20200102142835-e9ef32dff381
 	github.com/machinebox/graphql v0.2.3-0.20181106130121-3a9253180225
 	github.com/matryer/is v1.3.0 // indirect
+	github.com/mattn/go-colorable v0.1.7 // indirect
 	github.com/mattn/go-isatty v0.0.12
+	github.com/mattn/go-runewidth v0.0.9 // indirect
+	github.com/mattn/go-tty v0.0.3 // indirect
 	github.com/mitchellh/mapstructure v1.3.1 // indirect
 	github.com/moby/buildkit v0.7.1
 	github.com/morikuni/aec v1.0.0
@@ -52,7 +56,7 @@ require (
 	github.com/stretchr/testify v1.6.1
 	golang.org/x/net v0.0.0-20200822124328-c89045814202
 	golang.org/x/sync v0.0.0-20200625203802-6e8e738ad208 // indirect
-	golang.org/x/sys v0.0.0-20200523222454-059865788121 // indirect
+	golang.org/x/sys v0.0.0-20200826173525-f9321e4c35a6 // indirect
 	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1 // indirect
 	google.golang.org/grpc v1.29.1 // indirect
 	google.golang.org/protobuf v1.24.0 // indirect

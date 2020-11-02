@@ -5,13 +5,17 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
+	"github.com/c-bata/go-prompt"
 	"github.com/hashicorp/go-multierror"
 	"github.com/logrusorgru/aurora"
+	"github.com/morikuni/aec"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/superfly/flyctl/docstrings"
 	"github.com/superfly/flyctl/flyctl"
+	"github.com/superfly/flyctl/flyname"
 	"github.com/superfly/flyctl/internal/client"
 )
 
@@ -31,7 +35,89 @@ var rootCmd = &Command{
 
 			flyctlClient = client.NewClient()
 		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var txt string
+			currcmd := cmd
+			var prevcmd *cobra.Command
+
+			inputprompt := "> " + flyname.Name() + " "
+
+			fmt.Printf("%s", aec.Up(1))
+			fmt.Printf("%s", aec.EraseLine(aec.EraseModes.All))
+
+			txt = prompt.Input(inputprompt, rootCompleter)
+
+			for {
+				prevcmd = currcmd
+				currcmd = findChild(txt, currcmd)
+				if currcmd == nil {
+					break
+				}
+				buildListForCommand(currcmd)
+				inputprompt = inputprompt + txt + " "
+				fmt.Printf("%s", aec.Up(1))
+				fmt.Printf("%s", aec.EraseLine(aec.EraseModes.All))
+				fmt.Printf("%s", aec.
+
+				txt = prompt.Input(inputprompt, generalCompleter)
+			}
+
+			if txt != "" && currcmd == nil {
+				fmt.Println("Not a command")
+			} else {
+				prevcmd.Run(cmd, args)
+			}
+
+			return nil
+		},
 	},
+}
+
+func findChild(txt string, cmd *cobra.Command) *cobra.Command {
+	commands := cmd.Commands()
+
+	for _, command := range commands {
+		if strings.Split(command.Use, " ")[0] == txt {
+			return command
+		}
+	}
+
+	return nil
+}
+
+var suggestList []prompt.Suggest
+var cmdSuggestList []prompt.Suggest
+
+func buildList() {
+	commands := GetRootCommand().Commands()
+
+	for _, command := range commands {
+		if !command.Hidden {
+			suggestList = append(suggestList, prompt.Suggest{Text: strings.Split(command.Use, " ")[0], Description: command.Short})
+		}
+	}
+}
+
+func buildListForCommand(command *cobra.Command) []prompt.Suggest {
+	commands := command.Commands()
+
+	cmdSuggestList = nil
+
+	for _, command := range commands {
+		if !command.Hidden {
+			cmdSuggestList = append(cmdSuggestList, prompt.Suggest{Text: strings.Split(command.Use, " ")[0], Description: command.Short})
+		}
+	}
+
+	return cmdSuggestList
+}
+
+func rootCompleter(d prompt.Document) []prompt.Suggest {
+	return prompt.FilterHasPrefix(suggestList, d.GetWordBeforeCursor(), true)
+}
+
+func generalCompleter(d prompt.Document) []prompt.Suggest {
+	return prompt.FilterHasPrefix(cmdSuggestList, d.GetWordBeforeCursor(), true)
 }
 
 // GetRootCommand - root for commands
@@ -104,6 +190,7 @@ func init() {
 		newVolumesCommand(),
 	)
 
+	buildList()
 	initConfig()
 }
 
