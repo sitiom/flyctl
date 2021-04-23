@@ -54,6 +54,21 @@ func (s *buildpacksBuilder) Run(ctx context.Context, dockerFactory *dockerClient
 		Buildpacks:   buildpacks,
 		Env:          normalizeBuildArgs(opts.AppConfig, opts.ExtraBuildArgs),
 		TrustBuilder: true,
+		Publish:      opts.Publish,
+		CacheImage:   opts.CacheTag,
+		AdditionalMirrors: map[string][]string{
+			"paketobuildpacks/builder:base":                 {"registry.fly.io/paketobuildpacks/builder:base"},
+			"paketobuildpacks/builder:full":                 {"registry.fly.io/paketobuildpacks/builder:full"},
+			"paketobuildpacks/builder:tiny":                 {"registry.fly.io/paketobuildpacks/builder:tiny"},
+			"paketobuildpacks/run:full-cnb":                 {"registry.fly.io/public/paketobuildpacks/run:full-cnb"},
+			"paketobuildpacks/run:tiny-cnb":                 {"registry.fly.io/public/paketobuildpacks/run:tiny-cnb"},
+			"paketobuildpacks/run:base-cnb":                 {"registry.fly.io/public/paketobuildpacks/run:base-cnb"},
+			"index.docker.io/paketobuildpacks/run:full-cnb": {"registry.fly.io/public/paketobuildpacks/run:full-cnb"},
+			"index.docker.io/paketobuildpacks/run:tiny-cnb": {"registry.fly.io/public/paketobuildpacks/run:tiny-cnb"},
+			"index.docker.io/paketobuildpacks/run:base-cnb": {"registry.fly.io/public/paketobuildpacks/run:base-cnb"},
+			"heroku/pack:20":                                {"registry.fly.io/public/heroku/pack:20"},
+			"heroku/pack:18":                                {"registry.fly.io/public/heroku/pack:18"},
+		},
 	})
 
 	if err != nil {
@@ -62,25 +77,25 @@ func (s *buildpacksBuilder) Run(ctx context.Context, dockerFactory *dockerClient
 
 	cmdfmt.PrintDone(streams.ErrOut, "Building image done")
 
-	if opts.Publish {
-		cmdfmt.PrintBegin(streams.ErrOut, "Pushing image to fly")
+	// if opts.Publish {
+	// 	cmdfmt.PrintBegin(streams.ErrOut, "Pushing image to fly")
 
-		if err := pushToFly(ctx, docker, streams, opts.Tag); err != nil {
-			return nil, err
-		}
+	// 	if err := pushToFly(ctx, docker, streams, opts.Tag); err != nil {
+	// 		return nil, err
+	// 	}
 
-		cmdfmt.PrintDone(streams.ErrOut, "Pushing image done")
-	}
+	// 	cmdfmt.PrintDone(streams.ErrOut, "Pushing image done")
+	// }
 
-	img, err := findImageWithDocker(docker, ctx, opts.Tag)
-	if err != nil {
-		return nil, err
-	}
+	// img, err := findImageWithDocker(docker, ctx, opts.Tag)
+	// if err != nil {
+	// 	return nil, err
+	// }
 
 	return &DeploymentImage{
-		ID:   img.ID,
+		ID:   "img.ID",
 		Tag:  opts.Tag,
-		Size: img.Size,
+		Size: 1234, //img.Size,
 	}, nil
 }
 

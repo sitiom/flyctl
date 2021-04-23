@@ -21,6 +21,7 @@ type ImageOptions struct {
 	ImageLabel     string
 	Publish        bool
 	Tag            string
+	CacheTag       string
 }
 
 type RefOptions struct {
@@ -75,6 +76,7 @@ func (r *Resolver) BuildImage(ctx context.Context, streams *iostreams.IOStreams,
 	if opts.Tag == "" {
 		opts.Tag = newDeploymentTag(opts.AppName, opts.ImageLabel)
 	}
+	opts.CacheTag = newDeploymentTag(opts.AppName, "build-cache")
 
 	strategies := []imageBuilder{
 		&buildpacksBuilder{},
