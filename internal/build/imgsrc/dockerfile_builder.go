@@ -111,12 +111,12 @@ func (ds *dockerfileBuilder) Run(ctx context.Context, dockerFactory *dockerClien
 		return nil, errors.Wrap(err, "error checking for buildkit support")
 	}
 	if buildkitEnabled {
-		imageID, err = runBuildKitBuild(ctx, streams, docker, r, opts, relativedockerfilePath, buildArgs)
+		imageID, err = runBuildKitBuild(ctx, streams, docker, r, opts, relativedockerfilePath, buildArgs, dockerFactory.mode.IsRemote())
 		if err != nil {
 			return nil, errors.Wrap(err, "error building")
 		}
 	} else {
-		imageID, err = runClassicBuild(ctx, streams, docker, r, opts, relativedockerfilePath, buildArgs)
+		imageID, err = runClassicBuild(ctx, streams, docker, r, opts, relativedockerfilePath, buildArgs, dockerFactory.mode.IsRemote())
 		if err != nil {
 			return nil, errors.Wrap(err, "error building")
 		}
@@ -166,7 +166,7 @@ func normalizeBuildArgsForDocker(appConfig *flyctl.AppConfig, extra map[string]s
 	return out
 }
 
-func runClassicBuild(ctx context.Context, streams *iostreams.IOStreams, docker *dockerclient.Client, r io.ReadCloser, opts ImageOptions, dockerfilePath string, buildArgs map[string]*string) (imageID string, err error) {
+func runClassicBuild(ctx context.Context, streams *iostreams.IOStreams, docker *dockerclient.Client, r io.ReadCloser, opts ImageOptions, dockerfilePath string, buildArgs map[string]*string, isRemote bool) (imageID string, err error) {
 	options := types.ImageBuildOptions{
 		Tags:      []string{opts.Tag},
 		BuildArgs: buildArgs,
@@ -174,6 +174,10 @@ func runClassicBuild(ctx context.Context, streams *iostreams.IOStreams, docker *
 		AuthConfigs: authConfigs(),
 		Platform:    "linux/amd64",
 		Dockerfile:  dockerfilePath,
+	}
+
+	if isRemote {
+		options.NetworkMode = "host"
 	}
 
 	resp, err := docker.ImageBuild(ctx, r, options)
@@ -199,7 +203,7 @@ func runClassicBuild(ctx context.Context, streams *iostreams.IOStreams, docker *
 
 const uploadRequestRemote = "upload-request"
 
-func runBuildKitBuild(ctx context.Context, streams *iostreams.IOStreams, docker *dockerclient.Client, r io.ReadCloser, opts ImageOptions, dockerfilePath string, buildArgs map[string]*string) (imageID string, err error) {
+func runBuildKitBuild(ctx context.Context, streams *iostreams.IOStreams, docker *dockerclient.Client, r io.ReadCloser, opts ImageOptions, dockerfilePath string, buildArgs map[string]*string, isRemote bool) (imageID string, err error) {
 	s, err := createBuildSession(opts.WorkingDir)
 	if err != nil {
 		panic(err)
@@ -246,6 +250,10 @@ func runBuildKitBuild(ctx context.Context, streams *iostreams.IOStreams, docker 
 			BuildID:       buildID,
 			Platform:      "linux/amd64",
 			Dockerfile:    dockerfilePath,
+		}
+
+		if isRemote {
+			buildOpts.NetworkMode = "host"
 		}
 
 		return func() error {

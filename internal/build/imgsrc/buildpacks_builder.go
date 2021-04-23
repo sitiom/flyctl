@@ -47,14 +47,20 @@ func (s *buildpacksBuilder) Run(ctx context.Context, dockerFactory *dockerClient
 
 	cmdfmt.PrintBegin(streams.ErrOut, "Building image with Buildpacks")
 
-	err = packClient.Build(ctx, pack.BuildOptions{
+	buildOpts := pack.BuildOptions{
 		AppPath:      opts.WorkingDir,
 		Builder:      builder,
 		Image:        opts.Tag,
 		Buildpacks:   buildpacks,
 		Env:          normalizeBuildArgs(opts.AppConfig, opts.ExtraBuildArgs),
 		TrustBuilder: true,
-	})
+	}
+
+	if dockerFactory.mode.IsRemote() {
+		buildOpts.ContainerConfig = pack.ContainerConfig{Network: "host"}
+	}
+
+	err = packClient.Build(ctx, buildOpts)
 
 	if err != nil {
 		return nil, err
