@@ -164,8 +164,17 @@ func runDeploy(cmdCtx *cmdctx.CmdContext) error {
 			Target:     cmdCtx.Config.GetString("build-target"),
 			NoCache:    cmdCtx.Config.GetBool("no-cache"),
 		}
-		if dockerfilePath := cmdCtx.Config.GetString("dockerfile"); dockerfilePath != "" {
-			dockerfilePath, err := filepath.Abs(dockerfilePath)
+
+		var dockerfile string
+
+		dockerfile = cmdCtx.Config.GetString("dockerfile")
+
+		if dockerfile == "" {
+			dockerfile = opts.AppConfig.Dockerfile
+		}
+
+		if dockerfile != "" {
+			dockerfilePath, err := filepath.Abs(dockerfile)
 			if err != nil {
 				return err
 			}

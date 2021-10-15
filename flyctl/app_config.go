@@ -33,6 +33,7 @@ type Build struct {
 	Builder    string
 	Args       map[string]string
 	Buildpacks []string
+	Dockerfile string
 	// Or...
 	Builtin  string
 	Settings map[string]interface{}
