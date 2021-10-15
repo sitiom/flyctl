@@ -170,7 +170,7 @@ func runDeploy(cmdCtx *cmdctx.CmdContext) error {
 		dockerfile = cmdCtx.Config.GetString("dockerfile")
 
 		if dockerfile == "" {
-			dockerfile = opts.AppConfig.Dockerfile
+			dockerfile = opts.AppConfig.Build.Dockerfile
 		}
 
 		if dockerfile != "" {
