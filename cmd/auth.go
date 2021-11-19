@@ -270,8 +270,9 @@ func runAuthDocker(cmdCtx *cmdctx.CmdContext) error {
 	}
 
 	token := flyctl.GetAPIToken()
+	registryHost := viper.GetString(flyctl.ConfigRegistryHost)
 
-	cmd := exec.CommandContext(ctx, binary, "login", "--username=x", "--password-stdin", "registry.fly.io")
+	cmd := exec.CommandContext(ctx, binary, "login", "--username=x", "--password-stdin", viper.GetString(flyctl.ConfigRegistryHost))
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return err
@@ -294,10 +295,10 @@ func runAuthDocker(cmdCtx *cmdctx.CmdContext) error {
 			return err
 		}
 		fmt.Println(output)
-		return errors.New("error authenticating with registry.fly.io")
+		return errors.New("error authenticating with " + registryHost)
 	}
 
-	fmt.Println("Authentication successful. You can now tag and push images to registry.fly.io/{your-app}")
+	fmt.Println("Authentication successful. You can now tag and push images to " + registryHost + "/{your-app}")
 
 	return nil
 }
