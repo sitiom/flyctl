@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AlecAivazis/survey/v2"
 	"github.com/briandowns/spinner"
 	"github.com/logrusorgru/aurora"
 	"github.com/spf13/cobra"
@@ -18,6 +19,69 @@ import (
 	"github.com/superfly/flyctl/helpers"
 	"github.com/superfly/flyctl/internal/client"
 )
+
+type Plan struct {
+	Name            string
+	Description     string
+	VmSize          string
+	MemoryMb        int
+	DiskGb          int
+	Count           int
+	DevelopmentOnly bool
+}
+
+func postgresTiers() []Plan {
+	return []Plan{
+		{
+			Description:     "Standalone - 1x shared CPU, 256MB RAM, 10GB disk ( Free tier )",
+			VmSize:          "shared-cpu-1x",
+			MemoryMb:        256,
+			DiskGb:          10,
+			Count:           1,
+			DevelopmentOnly: true,
+		},
+		{
+			Description:     "Highly available - 1x shared CPU, 256MB RAM, 10GB disk",
+			VmSize:          "shared-cpu-1x",
+			MemoryMb:        256,
+			DiskGb:          10,
+			Count:           2,
+			DevelopmentOnly: false,
+		},
+		{
+			Description:     "Highly available - 1x shared CPU, 2GB RAM, 40GB disk",
+			VmSize:          "shared-cpu-1x",
+			MemoryMb:        2048,
+			DiskGb:          40,
+			Count:           2,
+			DevelopmentOnly: false,
+		},
+		{
+			Description:     "Highly available - 2x Dedicated CPU's, 4GB RAM, 100GB disk",
+			VmSize:          "dedicated-cpu-2x",
+			MemoryMb:        4096,
+			DiskGb:          100,
+			Count:           2,
+			DevelopmentOnly: false,
+		},
+		{
+			Description:     "Highly available - 8x Dedicated CPU's, 64GB RAM, 500GB disk",
+			VmSize:          "dedicated-cpu-8x",
+			MemoryMb:        65536,
+			DiskGb:          500,
+			Count:           2,
+			DevelopmentOnly: false,
+		},
+		{
+			Description:     "Specify custom configuration",
+			VmSize:          "",
+			MemoryMb:        0,
+			DiskGb:          0,
+			Count:           0,
+			DevelopmentOnly: false,
+		},
+	}
+}
 
 func newPostgresCommand(client *client.Client) *Command {
 	domainsStrings := docstrings.Get("postgres")
@@ -36,6 +100,7 @@ func newPostgresCommand(client *client.Client) *Command {
 	createCmd.AddStringFlag(StringFlagOpts{Name: "password", Description: "the superuser password. one will be generated for you if you leave this blank"})
 	createCmd.AddStringFlag(StringFlagOpts{Name: "volume-size", Description: "the size in GB for volumes"})
 	createCmd.AddStringFlag(StringFlagOpts{Name: "vm-size", Description: "the size of the VM"})
+
 	createCmd.AddStringFlag(StringFlagOpts{Name: "image-ref", Hidden: true})
 	createCmd.AddStringFlag(StringFlagOpts{Name: "snapshot-id", Description: "Creates the volume with the contents of the snapshot"})
 
@@ -99,24 +164,65 @@ func runCreatePostgresCluster(cmdCtx *cmdctx.CmdContext) error {
 	}
 
 	regionCode := cmdCtx.Config.GetString("region")
-	region, err := selectRegion(ctx, cmdCtx.Client.API(), regionCode)
-	if err != nil {
-		return err
-	}
-
-	vmSizeName := cmdCtx.Config.GetString("vm-size")
-	vmSize, err := selectVMSize(ctx, cmdCtx.Client.API(), vmSizeName)
-	if err != nil {
-		return err
-	}
-
-	volumeSize := cmdCtx.Config.GetInt("volume-size")
-	if volumeSize == 0 {
-		s, err := volumeSizeInput(10)
+	var region *api.Region
+	if regionCode == "" {
+		region, err = selectRegion(ctx, cmdCtx.Client.API(), regionCode)
 		if err != nil {
 			return err
 		}
-		volumeSize = s
+	}
+
+	var vmSize *api.VMSize
+	vmSizeName := cmdCtx.Config.GetString("vm-size")
+	volumeSizeGB := cmdCtx.Config.GetInt("volume-size")
+	count := cmdCtx.Config.GetInt("count")
+
+	if vmSizeName == "" && volumeSizeGB == 0 {
+		selectedTier := 0
+
+		options := []string{}
+		for _, tier := range postgresTiers() {
+			options = append(options, tier.Description)
+		}
+		prompt := &survey.Select{
+			Message:  "Select configuration:",
+			Options:  options,
+			PageSize: len(postgresTiers()),
+		}
+		if err := survey.AskOne(prompt, &selectedTier); err != nil {
+			return err
+		}
+
+		tier := postgresTiers()[selectedTier]
+
+		vmSize, err = selectVMSize(ctx, cmdCtx.Client.API(), tier.VmSize)
+		if err != nil {
+			return err
+		}
+		volumeSizeGB = tier.DiskGb
+		count = tier.Count
+	}
+
+	// Default to 2 nodes if not using free tier.
+	// TODO - Would be nice to ask for count.
+	if count == 0 {
+		count = 2
+	}
+
+	if vmSize == nil {
+		vmSize, err = selectVMSize(ctx, cmdCtx.Client.API(), vmSizeName)
+		if err != nil {
+			return err
+		}
+		vmSizeName = vmSize.Name
+	}
+
+	if volumeSizeGB == 0 {
+		size, err := volumeSizeInput(10)
+		if err != nil {
+			return err
+		}
+		volumeSizeGB = size
 	}
 
 	input := api.CreatePostgresClusterInput{
@@ -124,8 +230,13 @@ func runCreatePostgresCluster(cmdCtx *cmdctx.CmdContext) error {
 		Name:           name,
 		Region:         api.StringPointer(region.Code),
 		VMSize:         api.StringPointer(vmSize.Name),
-		VolumeSizeGB:   api.IntPointer(volumeSize),
+		VolumeSizeGB:   api.IntPointer(volumeSizeGB),
+		Count:          api.IntPointer(count),
 	}
+
+	fmt.Printf("Selected config: VMSize: %s, Memory: %d, Volume size: %d \n", *input.VMSize, vmSize.MemoryMB, *input.VolumeSizeGB)
+
+	return nil
 
 	if imageRef := cmdCtx.Config.GetString("image-ref"); imageRef != "" {
 		input.ImageRef = api.StringPointer(imageRef)
