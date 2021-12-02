@@ -18,6 +18,7 @@ const (
 	apiBaseURLEnvKey    = envKeyPrefix + "API_BASE_URL"
 	accessTokenEnvKey   = envKeyPrefix + "ACCESS_TOKEN"
 	apiTokenEnvKey      = envKeyPrefix + "API_TOKEN"
+	apiFlyctlEnvKey     = "FLYCTL_API_TOKEN"
 	orgEnvKey           = envKeyPrefix + "ORG"
 	registryHostEnvKey  = envKeyPrefix + "REGISTRY_HOST"
 	organizationEnvKey  = envKeyPrefix + "ORGANIZATION"
@@ -54,7 +55,7 @@ func New() *Config {
 // variables to the values these variables contain.
 func (cfg *Config) ApplyEnv() {
 	cfg.AccessToken = env.FirstOrDefault(cfg.AccessToken,
-		accessTokenEnvKey, apiTokenEnvKey)
+		apiFlyctlEnvKey, accessTokenEnvKey, apiTokenEnvKey)
 
 	cfg.VerboseOutput = env.IsTruthy(verboseOutputEnvKey) || cfg.VerboseOutput
 	cfg.JSONOutput = env.IsTruthy(jsonOutputEnvKey) || cfg.JSONOutput
