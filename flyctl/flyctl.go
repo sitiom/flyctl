@@ -103,14 +103,14 @@ func loadConfig() error {
 func GetAPIToken() string {
 	// Are either env vars set?
 	// check Access token
-	accessToken, lookup := os.LookupEnv("FLY_ACCESS_TOKEN")
+	accessToken, lookup := os.LookupEnv("FLYCTL_ACCESS_TOKEN")
 
 	if lookup {
 		return accessToken
 	}
 
 	// check API token
-	apiToken, lookup := os.LookupEnv("FLY_API_TOKEN")
+	apiToken, lookup := os.LookupEnv("FLYCTL_API_TOKEN")
 
 	if lookup {
 		return apiToken
