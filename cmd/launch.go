@@ -365,15 +365,11 @@ func runLaunch(cmdCtx *cmdctx.CmdContext) error {
 			fmt.Println(cmd.Description)
 			// Run a requested generator command, for example to generate a Dockerfile
 			cmd := exec.CommandContext(ctx, binary, cmd.Args...)
+			stdout, err := cmd.CombinedOutput()
 
-			if err = cmd.Start(); err != nil {
-				return err
-			}
-
-			if err = cmd.Wait(); err != nil {
-				err = fmt.Errorf("failed running %s: %w ", cmd.String(), err)
-
-				return err
+			if err != nil {
+				fmt.Println(stdout)
+				return fmt.Errorf("Failed to run %s\n", cmd.String())
 			}
 		}
 	}
