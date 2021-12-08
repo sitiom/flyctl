@@ -21,9 +21,13 @@ import (
 )
 
 type PostgresClusterOption struct {
-	Name     string
-	ImageRef string
-	Count    int
+	Name         string
+	ImageRef     string
+	Password     string
+	SnapshotID   string
+	Organization string
+	Region       string
+	Count        int
 }
 type PostgresConfiguration struct {
 	Name             string
@@ -113,7 +117,7 @@ func newPostgresCommand(client *client.Client) *Command {
 	listCmd.Args = cobra.MaximumNArgs(1)
 
 	createStrings := docstrings.Get("postgres.create")
-	createCmd := BuildCommandKS(cmd, runCreatePostgresCluster, createStrings, client, requireSession)
+	createCmd := BuildCommandKS(cmd, CreatePostgresClusterFromCommand, createStrings, client, requireSession)
 	createCmd.AddStringFlag(StringFlagOpts{Name: "organization", Description: "the organization that will own the app"})
 	createCmd.AddStringFlag(StringFlagOpts{Name: "name", Description: "the name of the new app"})
 	createCmd.AddStringFlag(StringFlagOpts{Name: "region", Description: "the region to launch the new app in"})
@@ -165,143 +169,75 @@ func runPostgresList(ctx *cmdctx.CmdContext) error {
 	return ctx.Render(&presenters.Apps{Apps: apps})
 }
 
-func runCreatePostgresCluster(cmdCtx *cmdctx.CmdContext) error {
+func CreatePostgresClusterFromCommand(cmdCtx *cmdctx.CmdContext) error {
 	ctx := cmdCtx.Command.Context()
 
-	name := cmdCtx.Config.GetString("name")
-	if name == "" {
+	clusterOption := PostgresClusterOption{
+		Organization: cmdCtx.Config.GetString("organization"),
+		Region:       cmdCtx.Config.GetString("region"),
+		ImageRef:     cmdCtx.Config.GetString("image-ref"),
+		Password:     cmdCtx.Config.GetString("password"),
+		SnapshotID:   cmdCtx.Config.GetString("snapshot-id"),
+	}
+
+	postgresConfig := PostgresConfiguration{
+		Name:             cmdCtx.Config.GetString("name"),
+		VmSize:           cmdCtx.Config.GetString("vm-size"),
+		DiskGb:           cmdCtx.Config.GetInt("volume-size"),
+		ClusteringOption: clusterOption,
+	}
+
+	err := createPostgresCluster(ctx, cmdCtx.Client.API(), postgresConfig)
+	return err
+}
+
+func createPostgresCluster(ctx context.Context, client *api.Client, postgresConfig PostgresConfiguration) error {
+	// Ask for an app name if it's not specified
+	if postgresConfig.Name == "" {
 		n, err := inputAppName("", false)
 		if err != nil {
 			return err
 		}
-		name = n
+		postgresConfig.Name = n
 	}
 
-	orgSlug := cmdCtx.Config.GetString("organization")
-	org, err := selectOrganization(ctx, cmdCtx.Client.API(), orgSlug, nil)
+	// Ask for an org name if not specified
+	org, err := selectOrganization(ctx, client, postgresConfig.ClusteringOption.Organization, nil)
 	if err != nil {
 		return err
 	}
 
-	regionCode := cmdCtx.Config.GetString("region")
+	// Ask for a region if not specified
 	var region *api.Region
-	region, err = selectRegion(ctx, cmdCtx.Client.API(), regionCode)
+	region, err = selectRegion(ctx, client, postgresConfig.ClusteringOption.Region)
 	if err != nil {
 		return err
 	}
 
-	input := api.CreatePostgresClusterInput{
+	// create the initial cluster creation mutation input
+	input := &api.CreatePostgresClusterInput{
 		OrganizationID: org.ID,
-		Name:           name,
+		Name:           postgresConfig.Name,
 		Region:         api.StringPointer(region.Code),
 	}
 
-	customConfig := false
-
-	volumeSize := cmdCtx.Config.GetInt("volume-size")
-	vmSizeName := cmdCtx.Config.GetString("vm-size")
-
-	if volumeSize != 0 || vmSizeName != "" {
-		customConfig = true
-	}
-
-	var pgConfig *PostgresConfiguration
-	var vmSize *api.VMSize
-
-	// If no custom configuration settings have been passed in, prompt user to select
-	// from a list of pre-defined configurations or opt into specifying a custom
-	// configuration.
-	if !customConfig {
-		selectedCfg := 0
-		options := []string{}
-		for _, cfg := range postgresConfigurations() {
-			options = append(options, cfg.Description)
-		}
-		prompt := &survey.Select{
-			Message:  "Select configuration:",
-			Options:  options,
-			PageSize: len(postgresConfigurations()),
-		}
-		if err := survey.AskOne(prompt, &selectedCfg); err != nil {
-			return err
-		}
-		pgConfig = &postgresConfigurations()[selectedCfg]
-
-		if pgConfig.VmSize == "" {
-			// User has opted into choosing a custom configuration.
-			customConfig = true
-		}
-	}
-
-	if customConfig {
-		selected := 0
-		options := []string{}
-		for _, opt := range postgresClusteringOptions() {
-			options = append(options, opt.Name)
-		}
-		prompt := &survey.Select{
-			Message:  "Select configuration:",
-			Options:  options,
-			PageSize: 2,
-		}
-		if err := survey.AskOne(prompt, &selected); err != nil {
-			return err
-		}
-		option := postgresClusteringOptions()[selected]
-
-		input.Count = &option.Count
-		input.ImageRef = &option.ImageRef
-
-		// Resolve VM size
-		vmSize, err = selectVMSize(ctx, cmdCtx.Client.API(), vmSizeName)
-		if err != nil {
-			return err
-		}
-		input.VMSize = api.StringPointer(vmSize.Name)
-
-		// Resolve volume size
-		if volumeSize == 0 {
-			volumeSize, err = volumeSizeInput(10)
-			if err != nil {
-				return err
-			}
-		}
-		input.VolumeSizeGB = api.IntPointer(volumeSize)
-
+	if postgresConfig.DiskGb != 0 || postgresConfig.VmSize != "" {
+		// createCustomCluster
 	} else {
-		// Resolve configuration from pre-defined configuration.
-		vmSize, err = selectVMSize(ctx, cmdCtx.Client.API(), pgConfig.VmSize)
+		input, err = createStockCluster(ctx, client, postgresConfig, input)
 		if err != nil {
 			return err
 		}
-		input.VMSize = api.StringPointer(vmSize.Name)
-		input.VolumeSizeGB = api.IntPointer(pgConfig.DiskGb)
-		input.Count = api.IntPointer(pgConfig.ClusteringOption.Count)
-
-		if imageRef := cmdCtx.Config.GetString("image-ref"); imageRef != "" {
-			input.ImageRef = api.StringPointer(imageRef)
-		} else {
-			input.ImageRef = &pgConfig.ClusteringOption.ImageRef
-		}
 	}
 
-	if password := cmdCtx.Config.GetString("password"); password != "" {
-		input.Password = api.StringPointer(password)
-	}
-
-	snapshot := cmdCtx.Config.GetString("snapshot-id")
-	if snapshot != "" {
-		input.SnapshotID = api.StringPointer(snapshot)
-	}
-
-	fmt.Fprintf(cmdCtx.Out, "Creating postgres cluster %s in organization %s\n", name, org.Slug)
+	fmt.Sprintf("Creating postgres cluster %s in organization %s\n", postgresConfig.Name, org.Slug)
 
 	s := spinner.New(spinner.CharSets[11], 100*time.Millisecond)
 	s.Writer = os.Stderr
 	s.Prefix = "Launching..."
 	s.Start()
 
-	payload, err := cmdCtx.Client.API().CreatePostgresCluster(ctx, input)
+	payload, err := client.CreatePostgresCluster(ctx, *input)
 	if err != nil {
 		return err
 	}
@@ -318,7 +254,7 @@ func runCreatePostgresCluster(cmdCtx *cmdctx.CmdContext) error {
 	fmt.Println(aurora.Italic("Save your credentials in a secure place, you won't be able to see them again!"))
 	fmt.Println()
 
-	cancelCtx := cmdCtx.Command.Context()
+	cancelCtx := ctx.Command.Context()
 	cmdCtx.AppName = payload.App.Name
 	err = watchDeployment(cancelCtx, cmdCtx)
 
@@ -337,6 +273,96 @@ func runCreatePostgresCluster(cmdCtx *cmdctx.CmdContext) error {
 	}
 
 	return err
+}
+
+// If no custom configuration settings have been passed on the command line, prompt user to
+// select from a list of pre-defined configurations or opt into specifying a custom
+// configuration.
+func createStockCluster(ctx context.Context, client *api.Client, config PostgresConfiguration, input *api.CreatePostgresClusterInput) (*api.CreatePostgresClusterInput, error) {
+
+	selectedCfg := 0
+	options := []string{}
+	for _, cfg := range postgresConfigurations() {
+		options = append(options, cfg.Description)
+	}
+
+	prompt := &survey.Select{
+		Message:  "Select configuration:",
+		Options:  options,
+		PageSize: len(postgresConfigurations()),
+	}
+
+	if err := survey.AskOne(prompt, &selectedCfg); err != nil {
+		return nil, err
+	}
+
+	var pgConfig *PostgresConfiguration
+
+	pgConfig = &postgresConfigurations()[selectedCfg]
+
+	// Resolve configuration from pre-defined configuration.
+	vmSize, err := selectVMSize(ctx, client, pgConfig.VmSize)
+	if err != nil {
+		return nil, err
+	}
+
+	input.VMSize = api.StringPointer(vmSize.Name)
+	input.VolumeSizeGB = api.IntPointer(pgConfig.DiskGb)
+	input.Count = api.IntPointer(pgConfig.ClusteringOption.Count)
+
+	input.ImageRef = &pgConfig.ClusteringOption.ImageRef
+
+	if config.ClusteringOption.ImageRef != "" {
+		input.ImageRef = api.StringPointer(config.ClusteringOption.ImageRef)
+	}
+
+	// If someone chose to make a custom config from the list...
+	if pgConfig.VmSize == "" {
+		// createCustomCluster
+	}
+
+	return &input, nil
+
+}
+
+func createCustomCluster(ctx context.Context, client *api.Client, config PostgresConfiguration, input api.CreatePostgresClusterInput) (*api.CreatePostgresClusterInput, error) {
+
+	selected := 0
+
+	options := []string{}
+	for _, opt := range postgresClusteringOptions() {
+		options = append(options, opt.Name)
+	}
+	prompt := &survey.Select{
+		Message:  "Select configuration:",
+		Options:  options,
+		PageSize: 2,
+	}
+	if err := survey.AskOne(prompt, &selected); err != nil {
+		return nil, err
+	}
+	option := postgresClusteringOptions()[selected]
+
+	input.Count = &option.Count
+	input.ImageRef = &option.ImageRef
+
+	// Resolve VM size
+	vmSize, err := selectVMSize(ctx, client, config.VmSize)
+	if err != nil {
+		return nil, err
+	}
+	input.VMSize = api.StringPointer(vmSize.Name)
+
+	// Resolve volume size
+	if config.DiskGb == 0 {
+		config.DiskGb, err = volumeSizeInput(10)
+		if err != nil {
+			return nil, err
+		}
+	}
+	input.VolumeSizeGB = api.IntPointer(config.DiskGb)
+
+	return &input, nil
 }
 
 func runAttachPostgresCluster(cmdCtx *cmdctx.CmdContext) error {
