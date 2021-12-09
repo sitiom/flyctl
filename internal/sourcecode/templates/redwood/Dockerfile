@@ -10,7 +10,6 @@ RUN yarn install --frozen-lockfile
 
 COPY redwood.toml .
 COPY graphql.config.js .
-COPY babel.config.js .
 
 FROM base as web_build
 
