@@ -72,6 +72,11 @@ func newLaunchCommand(client *client.Client) *Command {
 		Description: "Use the configuration file if present without prompting.",
 		Default:     false,
 	})
+	launchCmd.AddBoolFlag(BoolFlagOpts{
+		Name:        "remote-only",
+		Description: "Perform builds remotely without using the local docker daemon",
+		Default:     true,
+	})
 
 	return launchCmd
 }
@@ -129,7 +134,8 @@ func runLaunch(cmdCtx *cmdctx.CmdContext) error {
 	}
 
 	fmt.Println("Creating app in", dir)
-	var srcInfo *sourcecode.SourceInfo
+
+	var srcInfo = new(sourcecode.SourceInfo)
 
 	if img := cmdCtx.Config.GetString("image"); img != "" {
 		fmt.Println("Using image", img)
@@ -262,7 +268,11 @@ func runLaunch(cmdCtx *cmdctx.CmdContext) error {
 		}
 
 		for envName, envVal := range srcInfo.Env {
-			appConfig.SetEnvVariable(envName, envVal)
+			if envVal == "APP_FQDN" {
+				appConfig.SetEnvVariable(envName, app.Name+".fly.dev")
+			} else {
+				appConfig.SetEnvVariable(envName, envVal)
+			}
 		}
 
 		if len(srcInfo.Statics) > 0 {
@@ -288,6 +298,10 @@ func runLaunch(cmdCtx *cmdctx.CmdContext) error {
 		if srcInfo.DockerCommand != "" {
 			appConfig.SetDockerEntrypoint(srcInfo.DockerEntrypoint)
 		}
+
+		if srcInfo.KillSignal != "" {
+			appConfig.SetKillSignal(srcInfo.KillSignal)
+		}
 	}
 
 	fmt.Printf("Created app %s in organization %s\n", app.Name, org.Slug)
@@ -297,28 +311,31 @@ func runLaunch(cmdCtx *cmdctx.CmdContext) error {
 		secrets := make(map[string]string)
 		keys := []string{}
 
-		for k, v := range srcInfo.Secrets {
+		for _, secret := range srcInfo.Secrets {
+
 			val := ""
-			prompt := fmt.Sprintf("Set secret %s:", k)
 
-			surveyInput := &survey.Input{
-				Message: prompt,
-				Help:    v,
-			}
-
-			if strings.Contains(v, "random default") {
-				surveyInput.Default, err = helpers.RandString(64)
-				if err != nil {
-					return err
+			// If a secret should be a random default, just generate it without displaying
+			// Otherwise, prompt to type it in
+			if secret.Generate {
+				if val, err = helpers.RandString(64); err != nil {
+					fmt.Errorf("Could not generate random string: %w", err)
 				}
 
+			} else {
+				prompt := fmt.Sprintf("Set secret %s:", secret.Key)
+
+				surveyInput := &survey.Input{
+					Message: prompt,
+					Help:    secret.Help,
+				}
+
+				survey.AskOne(surveyInput, &val)
 			}
 
-			survey.AskOne(surveyInput, &val)
-
 			if val != "" {
-				secrets[k] = val
-				keys = append(keys, k)
+				secrets[secret.Key] = val
+				keys = append(keys, secret.Key)
 			}
 		}
 
@@ -361,7 +378,7 @@ func runLaunch(cmdCtx *cmdctx.CmdContext) error {
 	}
 
 	// Run any initialization commands
-	if len(srcInfo.InitCommands) > 0 {
+	if srcInfo != nil && len(srcInfo.InitCommands) > 0 {
 		for _, cmd := range srcInfo.InitCommands {
 			binary, err := exec.LookPath(cmd.Command)
 			if err != nil {
@@ -384,7 +401,7 @@ func runLaunch(cmdCtx *cmdctx.CmdContext) error {
 	}
 
 	// Append any requested Dockerfile entries
-	if len(srcInfo.DockerfileAppendix) > 0 {
+	if srcInfo != nil && len(srcInfo.DockerfileAppendix) > 0 {
 		if err := appendDockerfileAppendix(srcInfo.DockerfileAppendix); err != nil {
 			return fmt.Errorf("failed appending Dockerfile appendix: %w", err)
 		}
@@ -397,6 +414,50 @@ func runLaunch(cmdCtx *cmdctx.CmdContext) error {
 
 	if srcInfo == nil {
 		return nil
+	}
+
+	// If a Postgres cluster is requested, ask to create one
+	if srcInfo.CreatePostgresCluster && confirm("Would you like to setup a Postgres database now?") {
+
+		app, err := cmdCtx.Client.API().GetApp(ctx, cmdCtx.AppName)
+
+		if err != nil {
+			return err
+		}
+
+		options := standalonePostgres()
+
+		clusterAppName := app.Name + "-db"
+
+		// Create a standalone Postgres in the same region as the app and organization
+		clusterInput := api.CreatePostgresClusterInput{
+			OrganizationID: org.ID,
+			Name:           clusterAppName,
+			Region:         api.StringPointer(region.Code),
+			ImageRef:       api.StringPointer(options.ImageRef),
+			Count:          api.IntPointer(1),
+		}
+		payload, err := runApiCreatePostgresCluster(cmdCtx, org.Slug, &clusterInput)
+
+		if err != nil {
+			return err
+		}
+
+		attachInput := api.AttachPostgresClusterInput{
+			AppID:                app.ID,
+			PostgresClusterAppID: clusterAppName,
+		}
+
+		_, err = cmdCtx.Client.API().AttachPostgresCluster(cmdCtx.Command.Context(), attachInput)
+
+		// Reset the app name here beacuse AttachPostgresCluster sets it on the cmdCtx :/
+		cmdCtx.AppName = app.ID
+
+		if err != nil {
+			return err
+		}
+
+		fmt.Printf("Postgres cluster %s is now attached to %s\n", payload.App.Name, app.Name)
 	}
 
 	// Notices from a launcher about its behavior that should always be displayed
