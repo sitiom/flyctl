@@ -59,7 +59,22 @@ func GetOrg(ctx context.Context) string {
 	return GetString(ctx, OrgName)
 }
 
-// GetOrg is shorthand for GetBool(ctx, YesName).
+// GetRegion is shorthand for GetString(ctx, RegionName).
+func GetRegion(ctx context.Context) string {
+	return GetString(ctx, RegionName)
+}
+
+// GetYes is shorthand for GetBool(ctx, YesName).
 func GetYes(ctx context.Context) bool {
 	return GetBool(ctx, YesName)
+}
+
+// GetApp is shorthand for GetString(ctx, AppName).
+func GetApp(ctx context.Context) string {
+	return GetString(ctx, AppName)
+}
+
+// GetAppConfigFilePath is shorthand for GetString(ctx, AppConfigFilePathName).
+func GetAppConfigFilePath(ctx context.Context) string {
+	return GetString(ctx, AppConfigFilePathName)
 }
