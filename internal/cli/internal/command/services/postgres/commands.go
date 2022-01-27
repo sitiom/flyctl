@@ -66,6 +66,17 @@ type postgresCmd struct {
 	io     *iostreams.IOStreams
 }
 
+type stolonSpec struct {
+	AutomaticPgRestart bool          `json:"automaticPgRestart"`
+	PGParameters       *pgParameters `json:"pgParameters,omitempty"`
+}
+
+type pgParameters struct {
+	LogDuration    string `json:"log_duration,omitempty"`
+	MaxConnections string `json:"max_connections,omitempty"`
+	WalLevel       string `json:"wal_level,omitempty"`
+}
+
 func newPostgresCmd(ctx context.Context, app *api.App, dialer agent.Dialer) *postgresCmd {
 	return &postgresCmd{
 		ctx:    &ctx,
@@ -73,6 +84,42 @@ func newPostgresCmd(ctx context.Context, app *api.App, dialer agent.Dialer) *pos
 		dialer: dialer,
 		io:     iostreams.FromContext(ctx),
 	}
+}
+
+func (pc *postgresCmd) viewStolonConfig() (*stolonSpec, error) {
+	configBytes, err := ssh.RunSSHCommand(*pc.ctx, pc.app, pc.dialer, "view-stolon-config")
+	if err != nil {
+		return nil, err
+	}
+
+	if len(configBytes) == 0 {
+		return nil, fmt.Errorf("failed to retrieve stolon-config")
+	}
+	var resp stolonSpec
+	if err := json.Unmarshal(configBytes, &resp); err != nil {
+		return nil, err
+	}
+
+	return &resp, nil
+}
+
+func (pc *postgresCmd) updateStolonConfig(config *stolonSpec) error {
+	fmt.Fprintln(pc.io.Out, "Running update-stolon-config")
+
+	configBytes, err := json.Marshal(config)
+	if err != nil {
+		return err
+	}
+
+	encode := encodeCommand(string(configBytes))
+
+	cmd := fmt.Sprintf("update-stolon-config %s", encode)
+	_, err = ssh.RunSSHCommand(*pc.ctx, pc.app, pc.dialer, cmd)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (pc *postgresCmd) revokeAccess(dbName, username string) (*postgresCommandResponse, error) {
