@@ -95,7 +95,7 @@ func runConfigView(ctx context.Context) error {
 
 func newConfigUpdate() (cmd *cobra.Command) {
 	const (
-		long = `Configure postgres cluster
+		long = `Manage Stolon and Postgres configuration.  Configure postgres cluster
 `
 		short = "Configure postgres cluster"
 		usage = "update"
@@ -118,12 +118,16 @@ func newConfigUpdate() (cmd *cobra.Command) {
 			Description: "Sets the level of information written to the WAL. (minimal, replica, logical)",
 		},
 		flag.String{
-			Name:        "log-duration",
-			Description: "Logs the duration of each completed SQL statement. (on, off)",
+			Name:        "log-statement",
+			Description: "Sets the type of statements logged. (none, ddl, mod, all)",
+		},
+		flag.String{
+			Name:        "log-min-duration-statement",
+			Description: "Sets the minimum execution time above which all statements will be logged. (ms)",
 		},
 		flag.String{
 			Name:        "automatic-pg-restart",
-			Description: "Restart postgres automatically after changing pgParameters that requires a restart. (true, false)",
+			Description: "Restart postgres automatically after changing any pgParameters that requires a restart. (true, false)",
 		},
 	)
 
@@ -151,7 +155,9 @@ func runConfigUpdate(ctx context.Context) error {
 
 	maxConnections := flag.GetString(ctx, "max-connections")
 	walLevel := flag.GetString(ctx, "wal-level")
-	logDuration := flag.GetString(ctx, "log-duration")
+	logStatement := flag.GetString(ctx, "log-statement")
+	logMinDurationStatement := flag.GetString(ctx, "log-min-duration-statement")
+	autoRestart := flag.GetString(ctx, "automatic-pg-restart")
 
 	pgCmd := newPostgresCmd(ctx, app, dialer)
 
@@ -161,29 +167,38 @@ func runConfigUpdate(ctx context.Context) error {
 		return err
 	}
 
-	// Target stolon configuration
-	nCfg := &stolonSpec{
-		AutomaticPgRestart: oCfg.AutomaticPgRestart, // Default
-		PGParameters: &pgParameters{
-			LogDuration:    logDuration,
-			MaxConnections: maxConnections,
-			WalLevel:       walLevel,
-		},
-	}
+	// New stolon configuration
+	var nCfg *stolonSpec
 
-	// TODO - See if there's a cleaner way to accommodate this.
-	// Ideally we wouldn't send this option if the value doesn't actually change,
-	// however, omitempty doesn't play nicely with booleans.
-	autoRestart := flag.GetString(ctx, "automatic-pg-restart")
+	// Duplicate original configuration.
+	oCfgJSON, err := json.Marshal(oCfg)
+	if err != nil {
+		return err
+	}
+	json.Unmarshal(oCfgJSON, &nCfg)
+
+	if maxConnections != "" {
+		nCfg.PGParameters.MaxConnections = maxConnections
+	}
+	if walLevel != "" {
+		nCfg.PGParameters.WalLevel = walLevel
+	}
+	if logStatement != "" {
+		nCfg.PGParameters.LogStatement = logStatement
+	}
+	if logMinDurationStatement != "" {
+		nCfg.PGParameters.LogMinDurationStatement = logMinDurationStatement
+	}
 	if autoRestart != "" {
-		val, err := strconv.ParseBool(autoRestart)
+		b, err := strconv.ParseBool(autoRestart)
 		if err != nil {
 			return err
 		}
-		nCfg.AutomaticPgRestart = val
+		nCfg.AutomaticPgRestart = &b
 	}
 
-	changelog, _ := diff.Diff(oCfg, nCfg)
+	// Verify that we actually have changes to apply
+	changelog, _ := diff.Diff(oCfg, &nCfg)
 	if len(changelog) == 0 {
 		return fmt.Errorf("no changes to apply")
 	}
@@ -204,14 +219,29 @@ func runConfigUpdate(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-
-	if confirm {
-		err = pgCmd.updateStolonConfig(nCfg)
-		if err != nil {
-			return err
-		}
-		fmt.Fprintln(out, "Changes have been successfully applied!")
+	if !confirm {
+		return nil
 	}
+
+	fmt.Fprintln(out, "Performing update...")
+	err = pgCmd.updateStolonConfig(nCfg)
+	if err != nil {
+		return err
+	}
+
+	fmt.Fprintln(out, "Confirming changes...")
+	cfg, err := pgCmd.viewStolonConfig()
+	if err != nil {
+		return err
+	}
+
+	// Diff newly pulled configuration with what was expected.
+	changelog, _ = diff.Diff(cfg, &nCfg)
+	if len(changelog) != 0 {
+		return fmt.Errorf(("Update failed to apply changes..."))
+	}
+
+	fmt.Fprintln(out, "Updates were applied successfully!")
 
 	return nil
 }

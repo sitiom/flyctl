@@ -67,14 +67,16 @@ type postgresCmd struct {
 }
 
 type stolonSpec struct {
-	AutomaticPgRestart bool          `json:"automaticPgRestart"`
-	PGParameters       *pgParameters `json:"pgParameters,omitempty"`
+	AutomaticPgRestart *bool        `json:"automaticPgRestart,omitempty"`
+	PGParameters       pgParameters `json:"pgParameters,omitempty"`
 }
 
 type pgParameters struct {
-	LogDuration    string `json:"log_duration,omitempty"`
-	MaxConnections string `json:"max_connections,omitempty"`
-	WalLevel       string `json:"wal_level,omitempty"`
+	LogStatement            string `json:"log_statement,omitempty"`
+	LogDuration             string `json:"log_duration,omitempty"`
+	LogMinDurationStatement string `json:"log_min_duration_statement,omitempty"`
+	MaxConnections          string `json:"max_connections,omitempty"`
+	WalLevel                string `json:"wal_level,omitempty"`
 }
 
 func newPostgresCmd(ctx context.Context, app *api.App, dialer agent.Dialer) *postgresCmd {
@@ -86,8 +88,9 @@ func newPostgresCmd(ctx context.Context, app *api.App, dialer agent.Dialer) *pos
 	}
 }
 
-func (pc *postgresCmd) viewStolonConfig() (*stolonSpec, error) {
-	configBytes, err := ssh.RunSSHCommand(*pc.ctx, pc.app, pc.dialer, "view-stolon-config")
+func (pc *postgresCmd) viewStolonConfig() (stolonSpec, error) {
+	cmd := fmt.Sprintf("stolonctl-run %s", encodeCommand("spec --defaults"))
+	configBytes, err := ssh.RunSSHCommand(*pc.ctx, pc.app, pc.dialer, cmd)
 	if err != nil {
 		return nil, err
 	}
@@ -104,16 +107,15 @@ func (pc *postgresCmd) viewStolonConfig() (*stolonSpec, error) {
 }
 
 func (pc *postgresCmd) updateStolonConfig(config *stolonSpec) error {
-	fmt.Fprintln(pc.io.Out, "Running update-stolon-config")
-
 	configBytes, err := json.Marshal(config)
 	if err != nil {
 		return err
 	}
 
-	encode := encodeCommand(string(configBytes))
+	subCmd := fmt.Sprintf("update --patch %s", string(configBytes))
 
-	cmd := fmt.Sprintf("update-stolon-config %s", encode)
+	cmd := fmt.Sprintf("stolonctl-run %s", encodeCommand(subCmd))
+
 	_, err = ssh.RunSSHCommand(*pc.ctx, pc.app, pc.dialer, cmd)
 	if err != nil {
 		return err

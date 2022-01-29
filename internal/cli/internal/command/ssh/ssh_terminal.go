@@ -83,6 +83,7 @@ func RunSSHCommand(ctx context.Context, app *api.App, dialer agent.Dialer, cmd s
 		Stderr:         stderrWriter,
 		DisableSpinner: true,
 	}, addr)
+	time.Sleep(1 * time.Second)
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +134,7 @@ func SSHConnect(p *SSHParams, addr string) error {
 	}
 	defer sshClient.Close()
 
-	terminal.Debugf("Connection completed.\n", addr)
+	terminal.Debugf("Connection completed. %s\n", addr)
 
 	if !p.DisableSpinner {
 		endSpin()
