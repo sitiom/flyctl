@@ -67,8 +67,7 @@ type postgresCmd struct {
 }
 
 type stolonSpec struct {
-	AutomaticPgRestart *bool        `json:"automaticPgRestart,omitempty"`
-	PGParameters       pgParameters `json:"pgParameters,omitempty"`
+	PGParameters pgParameters `json:"pgParameters,omitempty"`
 }
 
 type pgParameters struct {
@@ -88,7 +87,7 @@ func newPostgresCmd(ctx context.Context, app *api.App, dialer agent.Dialer) *pos
 	}
 }
 
-func (pc *postgresCmd) viewStolonConfig() (stolonSpec, error) {
+func (pc *postgresCmd) viewStolonConfig() (*stolonSpec, error) {
 	cmd := fmt.Sprintf("stolonctl-run %s", encodeCommand("spec --defaults"))
 	configBytes, err := ssh.RunSSHCommand(*pc.ctx, pc.app, pc.dialer, cmd)
 	if err != nil {

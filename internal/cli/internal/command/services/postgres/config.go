@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strconv"
 
 	"github.com/r3labs/diff"
 	"github.com/spf13/cobra"
@@ -115,7 +114,7 @@ func newConfigUpdate() (cmd *cobra.Command) {
 		},
 		flag.String{
 			Name:        "wal-level",
-			Description: "Sets the level of information written to the WAL. (minimal, replica, logical)",
+			Description: "Sets the level of information written to the WAL. (minimal, replica, logical).",
 		},
 		flag.String{
 			Name:        "log-statement",
@@ -124,10 +123,6 @@ func newConfigUpdate() (cmd *cobra.Command) {
 		flag.String{
 			Name:        "log-min-duration-statement",
 			Description: "Sets the minimum execution time above which all statements will be logged. (ms)",
-		},
-		flag.String{
-			Name:        "automatic-pg-restart",
-			Description: "Restart postgres automatically after changing any pgParameters that requires a restart. (true, false)",
 		},
 	)
 
@@ -153,12 +148,6 @@ func runConfigUpdate(ctx context.Context) error {
 		return fmt.Errorf("ssh: can't build tunnel for %s: %s", app.Organization.Slug, err)
 	}
 
-	maxConnections := flag.GetString(ctx, "max-connections")
-	walLevel := flag.GetString(ctx, "wal-level")
-	logStatement := flag.GetString(ctx, "log-statement")
-	logMinDurationStatement := flag.GetString(ctx, "log-min-duration-statement")
-	autoRestart := flag.GetString(ctx, "automatic-pg-restart")
-
 	pgCmd := newPostgresCmd(ctx, app, dialer)
 
 	// Original stolon configuration
@@ -177,33 +166,37 @@ func runConfigUpdate(ctx context.Context) error {
 	}
 	json.Unmarshal(oCfgJSON, &nCfg)
 
+	var requiresRestart []string
+
+	maxConnections := flag.GetString(ctx, "max-connections")
 	if maxConnections != "" {
 		nCfg.PGParameters.MaxConnections = maxConnections
+		requiresRestart = append(requiresRestart, "max-connections")
 	}
+
+	walLevel := flag.GetString(ctx, "wal-level")
 	if walLevel != "" {
+		requiresRestart = append(requiresRestart, "wal-level")
 		nCfg.PGParameters.WalLevel = walLevel
 	}
+
+	logStatement := flag.GetString(ctx, "log-statement")
 	if logStatement != "" {
 		nCfg.PGParameters.LogStatement = logStatement
 	}
+
+	logMinDurationStatement := flag.GetString(ctx, "log-min-duration-statement")
 	if logMinDurationStatement != "" {
 		nCfg.PGParameters.LogMinDurationStatement = logMinDurationStatement
 	}
-	if autoRestart != "" {
-		b, err := strconv.ParseBool(autoRestart)
-		if err != nil {
-			return err
-		}
-		nCfg.AutomaticPgRestart = &b
-	}
+
+	out := iostreams.FromContext(ctx).Out
 
 	// Verify that we actually have changes to apply
-	changelog, _ := diff.Diff(oCfg, &nCfg)
+	changelog, _ := diff.Diff(oCfg, nCfg)
 	if len(changelog) == 0 {
 		return fmt.Errorf("no changes to apply")
 	}
-
-	out := iostreams.FromContext(ctx).Out
 
 	rows := make([][]string, 0, len(changelog))
 	for _, change := range changelog {
@@ -211,11 +204,16 @@ func runConfigUpdate(ctx context.Context) error {
 			change.Path[len(change.Path)-1],
 			fmt.Sprint(change.From),
 			fmt.Sprint(change.To),
+			restartRequired(change.Path[len(change.Path)-1]),
 		})
 	}
-	_ = render.Table(out, "", rows, "Configuration option", "Original", "Target")
+	_ = render.Table(out, "", rows, "Configuration option", "Current", "Target", "Restart")
 
-	confirm, err := prompt.Confirm(ctx, fmt.Sprintf("Are you sure you want to apply these changes?"))
+	msg := ""
+	if len(requiresRestart) > 0 {
+		msg = " (Restart required)"
+	}
+	confirm, err := prompt.Confirm(ctx, fmt.Sprintf("Are you sure you want to apply these changes?%s", msg))
 	if err != nil {
 		return err
 	}
@@ -229,7 +227,7 @@ func runConfigUpdate(ctx context.Context) error {
 		return err
 	}
 
-	fmt.Fprintln(out, "Confirming changes...")
+	fmt.Fprintln(out, "Confirming changes have been applied...")
 	cfg, err := pgCmd.viewStolonConfig()
 	if err != nil {
 		return err
@@ -243,5 +241,24 @@ func runConfigUpdate(ctx context.Context) error {
 
 	fmt.Fprintln(out, "Updates were applied successfully!")
 
+	if len(requiresRestart) > 0 {
+		fmt.Fprintln(out, "Perform rolling reboot")
+	}
+
 	return nil
+}
+
+func restartRequired(option string) string {
+	// List of options that require restarts
+	cfgOpts := []string{
+		"WalLevel",
+		"MaxConnections",
+	}
+	for _, cfgOpt := range cfgOpts {
+		if option == cfgOpt {
+			return "true"
+		}
+	}
+
+	return "false"
 }
