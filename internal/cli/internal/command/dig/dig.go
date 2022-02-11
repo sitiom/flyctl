@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/superfly/flyctl/pkg/agent"
+	"github.com/superfly/flyctl/pkg/flydns"
 	"github.com/superfly/flyctl/pkg/iostreams"
 
 	"github.com/superfly/flyctl/api"
@@ -98,7 +99,7 @@ func run(ctx context.Context) error {
 		return err
 	}
 
-	r, ns, err := ResolverForOrg(ctx, agentclient, org)
+	r, ns, err := flydns.ResolverForOrg(ctx, agentclient, org)
 	if err != nil {
 		return err
 	}
@@ -235,44 +236,6 @@ func roundTrip(conn net.Conn, m *dns.Msg) (*dns.Msg, error) {
 	}
 
 	return ret, nil
-}
-
-// ResolverForOrg takes a connection to the wireguard agent and an organization
-// and returns a working net.Resolver for DNS for that organization, along with the
-// address of the nameserver.
-func ResolverForOrg(ctx context.Context, c *agent.Client, org *api.Organization) (*net.Resolver, string, error) {
-	// do this explicitly so we can get the DNS server address
-	ts, err := c.Establish(ctx, org.Slug)
-	if err != nil {
-		return nil, "", err
-	}
-
-	return &net.Resolver{
-		PreferGo: true,
-		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-			d, err := c.Dialer(ctx, org.Slug)
-			if err != nil {
-				return nil, err
-			}
-
-			network = "tcp"
-			server := net.JoinHostPort(ts.TunnelConfig.DNS.String(), "53")
-
-			// the connections we get from the agent are over a unix domain socket proxy,
-			// which implements the PacketConn interface, so Go's janky DNS library thinks
-			// we want UDP DNS. Trip it up.
-			type fakeConn struct {
-				net.Conn
-			}
-
-			c, err := d.DialContext(ctx, network, server)
-			if err != nil {
-				return nil, err
-			}
-
-			return &fakeConn{c}, nil
-		},
-	}, ts.TunnelConfig.DNS.String(), nil
 }
 
 // FixNameOrError cleans up resolver errors; the Go stdlib doesn't notice when

@@ -17,10 +17,10 @@ import (
 	"github.com/superfly/flyctl/api"
 	"github.com/superfly/flyctl/internal/cli/internal/app"
 	"github.com/superfly/flyctl/internal/cli/internal/command"
-	"github.com/superfly/flyctl/internal/cli/internal/command/dig"
 	"github.com/superfly/flyctl/internal/cli/internal/flag"
 	"github.com/superfly/flyctl/internal/client"
 	"github.com/superfly/flyctl/pkg/agent"
+	"github.com/superfly/flyctl/pkg/flydns"
 	"golang.org/x/net/icmp"
 	"golang.org/x/net/ipv6"
 )
@@ -123,7 +123,7 @@ func run(ctx context.Context) error {
 		return err
 	}
 
-	r, ns, err := dig.ResolverForOrg(ctx, aClient, org)
+	r, ns, err := flydns.ResolverForOrg(ctx, aClient, org)
 	if err != nil {
 		return err
 	}

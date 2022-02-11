@@ -17,6 +17,7 @@ import (
 	"github.com/superfly/flyctl/helpers"
 	"github.com/superfly/flyctl/internal/sentry"
 	"github.com/superfly/flyctl/pkg/agent"
+	"github.com/superfly/flyctl/pkg/flydns"
 	"github.com/superfly/flyctl/pkg/ssh"
 	"github.com/superfly/flyctl/terminal"
 )
@@ -222,6 +223,15 @@ func sshConnect(p *SSHParams, addr string) error {
 		endSpin = spin(fmt.Sprintf("Connecting to %s...", addr),
 			fmt.Sprintf("Connecting to %s... complete\n", addr))
 		defer endSpin()
+	}
+
+	r, ns, err := flydns.ResolverForOrg(ctx, aClient, org)
+	if err != nil {
+		return err
+	}
+
+	for {
+
 	}
 
 	ctx := p.Ctx.Command.Context()
