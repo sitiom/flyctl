@@ -441,6 +441,10 @@ func determineMounts(ctx context.Context) ([]api.MachineMount, error) {
 	for _, v := range flag.GetStringSlice(ctx, "volume") {
 		splittedIDDestOpts := strings.Split(v, ":")
 
+		if len(splittedIDDestOpts) < 2 {
+			return nil, errors.New("invalid volume format, use <id>:/path/to/mount")
+		}
+
 		mount := api.MachineMount{
 			Volume: splittedIDDestOpts[0],
 			Path:   splittedIDDestOpts[1],
