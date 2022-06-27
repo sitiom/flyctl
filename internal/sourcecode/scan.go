@@ -402,8 +402,8 @@ func configurePhoenix(sourceDir string) (*SourceInfo, error) {
 	}
 
 	// We found Phoenix, so check if the Docker generator is present
-  cmd := exec.Command("mix", "help", "phx.gen.release")
-  err := cmd.Run()
+	cmd := exec.Command("mix", "help", "phx.gen.release")
+	err := cmd.Run()
 	if err == nil {
 		s.DeployDocs = `
 Your Phoenix app should be ready for deployment!.
