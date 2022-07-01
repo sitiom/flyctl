@@ -5,11 +5,11 @@ import (
 	"fmt"
 
 	"github.com/superfly/flyctl/api"
-	"github.com/superfly/flyctl/flaps"
 	"github.com/superfly/flyctl/internal/app"
 	"github.com/superfly/flyctl/internal/build/imgsrc"
 	"github.com/superfly/flyctl/internal/client"
 	"github.com/superfly/flyctl/iostreams"
+	"github.com/superfly/flyctl/machine"
 )
 
 // Deploy ta machines app directly from flyctl, applying the desired config to running machines,
@@ -25,15 +25,22 @@ func createMachinesRelease(ctx context.Context, config *app.Config, img *imgsrc.
 		return
 	}
 
-	flapsClient, err := flaps.New(ctx, app)
+	mApp, err := machine.NewMachineApp(ctx, app)
 
 	if err != nil {
 		return
 	}
 
-	machineConfig := &api.MachineConfig{
-		Image: img.Tag,
+	mApp.ApiInput.Region = config.GetPrimaryRegion()
+
+	// Run validations against struct types and their JSON tags
+	err = config.Validate()
+
+	if err != nil {
+		return fmt.Errorf("Invalid fly.toml: %w", err)
 	}
+
+	mApp.Config.Image = img.Tag
 
 	// Convert the new, slimmer http service config to standard services
 	if config.HttpService != nil {
@@ -61,92 +68,54 @@ func createMachinesRelease(ctx context.Context, config *app.Config, img *imgsrc.
 			},
 		}
 
-		machineConfig.Services = append(machineConfig.Services, httpService, httpsService)
+		mApp.Config.Services = append(mApp.Config.Services, httpService, httpsService)
 	}
 
 	// Copy standard services to the machine vonfig
 	if config.Services != nil {
-		machineConfig.Services = append(machineConfig.Services, config.Services...)
+		mApp.Config.Services = append(mApp.Config.Services, config.Services...)
 	}
 
 	if config.Env != nil {
-		machineConfig.Env = config.Env
+		mApp.Config.Env = config.Env
 	}
 
 	if config.Metrics != nil {
-		machineConfig.Metrics = config.Metrics
+		mApp.Config.Metrics = config.Metrics
 	}
 
-	// Run validations against struct types and their JSON tags
-	err = config.Validate()
-
-	if err != nil {
-		return err
-	}
-
-	launchInput := api.LaunchMachineInput{
-		AppID:   config.AppName,
-		OrgSlug: app.Organization.ID,
-		Region:  config.GetPrimaryRegion(),
-		Config:  machineConfig,
-	}
-
-	machines, err := flapsClient.List(ctx, "")
+	err = mApp.GetMachines(ctx)
 
 	if err != nil {
 		return
 	}
 
-	if len(machines) > 0 {
+	if len(mApp.Machines) > 0 {
 
-		for _, machine := range machines {
+		err = mApp.LeaseAll(ctx)
 
-			fmt.Fprintf(io.Out, "Taking lease out on VM %s\n", machine.ID)
-			launchInput.ID = machine.ID
-			leaseTTL := api.IntPointer(30)
-			lease, err := flapsClient.GetLease(ctx, machine.ID, leaseTTL)
-
-			if err != nil {
-				return err
-			}
-
-			machine.LeaseNonce = lease.Data.Nonce
-
+		if err != nil {
+			return err
 		}
 
-		for _, machine := range machines {
+		err = mApp.UpdateAll(ctx)
 
-			fmt.Fprintf(io.Out, "Updating VM %s\n", machine.ID)
-			launchInput.ID = machine.ID
-			updateResult, err := flapsClient.Update(ctx, launchInput, machine.LeaseNonce)
-
-			if err != nil {
-				return err
-			}
-
-			fmt.Fprintf(io.Out, "Waiting for update to finish on %s\n", machine.ID)
-			err = flapsClient.Wait(ctx, updateResult)
-
-			if err != nil {
-				return err
-			}
-
+		if err != nil {
+			return err
 		}
 
-		for _, machine := range machines {
+		err = mApp.ReleaseAll(ctx)
 
-			fmt.Fprintf(io.Out, "Releasing lease on %s\n", machine.ID)
-			err = flapsClient.ReleaseLease(ctx, machine.ID, machine.LeaseNonce)
-			if err != nil {
-				return err
-			}
-
+		if err != nil {
+			return err
 		}
-		fmt.Fprintln(io.Out)
 
 	} else {
-		fmt.Fprintf(io.Out, "Launching VM with image %s\n", launchInput.Config.Image)
-		_, err = flapsClient.Launch(ctx, launchInput)
+
+		mApp.LaunchMachine(ctx)
+		if err != nil {
+			return err
+		}
 
 		if err != nil {
 			return err
