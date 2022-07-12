@@ -31,9 +31,7 @@ func createMachinesRelease(ctx context.Context, config *app.Config, img *imgsrc.
 		return
 	}
 
-	machineConfig := &api.MachineConfig{
-		Image: img.Tag,
-	}
+	machineConfig := &api.MachineConfig{}
 
 	// Convert the new, slimmer http service config to standard services
 	if config.HttpService != nil {
@@ -119,6 +117,18 @@ func createMachinesRelease(ctx context.Context, config *app.Config, img *imgsrc.
 			fmt.Fprintf(io.Out, "Updating VM %s\n", machine.ID)
 
 			launchInput.ID = machine.ID
+
+			fmt.Printf("%+v", machine)
+			var imageTag string = machine.FullImageRef()
+
+			// If no image was specified, we'll still update the machine to force it to restart with the same config.
+			// This is important for picking up external changes, such as app secrets being updated.
+
+			if img != nil {
+				imageTag = img.Tag
+			}
+
+			launchInput.Config.Image = imageTag
 
 			// Until mounts are supported in fly.toml, ensure deployments
 			// maintain any existing volume attachments

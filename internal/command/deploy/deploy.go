@@ -67,6 +67,11 @@ func New() (cmd *cobra.Command) {
 		flag.BuildSecret(),
 		flag.BuildTarget(),
 		flag.NoCache(),
+		flag.Bool{
+			Name:        "update-only",
+			Shorthand:   "u",
+			Description: "Update and restart machines without changing their configuration.",
+		},
 	)
 
 	return
@@ -87,29 +92,31 @@ func DeployWithConfig(ctx context.Context, appConfig *app.Config) (err error) {
 
 	apiClient := client.FromContext(ctx).API()
 
-	// Fetch an image ref or build from source to get the final image reference to deploy
-	img, err := determineImage(ctx, appConfig)
+	var img *imgsrc.DeploymentImage
 
-	if err != nil {
-		return fmt.Errorf("failed to fetch an image or build from source: %w", err)
+	if !flag.GetBool(ctx, "update-only") {
+		// Fetch an image ref or build from source to get the final image reference to deploy
+		img, err = determineImage(ctx, appConfig)
+
+		if err != nil {
+			return fmt.Errorf("failed to fetch an image or build from source: %w", err)
+		}
 	}
 
 	if flag.GetBuildOnly(ctx) {
 		return nil
 	}
 
-	if err != nil {
-		return err
-	}
-
 	var release *api.Release
 	var releaseCommand *api.ReleaseCommand
 
+	// Run a machines deployment
 	if appConfig.ForMachines() {
 		return createMachinesRelease(ctx, appConfig, img, flag.GetString(ctx, "strategy"))
-	} else {
-		release, releaseCommand, err = createRelease(ctx, appConfig, img)
 	}
+
+	// Proceed with nomad deployment if this is not a machines app
+	release, releaseCommand, err = createRelease(ctx, appConfig, img)
 
 	if err != nil {
 		return err
