@@ -232,18 +232,24 @@ func isPrefixedWith(data []byte, prefix string) bool {
 }
 
 type EstablishResponse struct {
+	TunnelName     string
 	WireGuardState *wg.WireGuardState
 	TunnelConfig   *wg.Config
 }
 
-func (c *Client) doEstablish(ctx context.Context, slug string, recycle bool) (res *EstablishResponse, err error) {
+func (c *Client) doEstablish(ctx context.Context, slug string, recycle bool, deploy bool) (res *EstablishResponse, err error) {
 	err = c.do(ctx, func(conn net.Conn) (err error) {
 		verb := "establish"
 		if recycle {
 			verb = "reestablish"
 		}
 
-		if err = proto.Write(conn, verb, slug); err != nil {
+		deployStr := "false"
+		if deploy {
+			deployStr = "true"
+		}
+
+		if err = proto.Write(conn, verb, slug, deployStr); err != nil {
 			return
 		}
 
@@ -261,6 +267,9 @@ func (c *Client) doEstablish(ctx context.Context, slug string, recycle bool) (re
 			if err = unmarshal(res, data); err != nil {
 				res = nil
 			}
+			if res.TunnelName == "" {
+				res.TunnelName = slug
+			}
 		case isError(data):
 			err = extractError(data)
 		}
@@ -272,11 +281,11 @@ func (c *Client) doEstablish(ctx context.Context, slug string, recycle bool) (re
 }
 
 func (c *Client) Establish(ctx context.Context, slug string) (res *EstablishResponse, err error) {
-	return c.doEstablish(ctx, slug, false)
+	return c.doEstablish(ctx, slug, false, false)
 }
 
 func (c *Client) Reestablish(ctx context.Context, slug string) (res *EstablishResponse, err error) {
-	return c.doEstablish(ctx, slug, true)
+	return c.doEstablish(ctx, slug, true, false)
 }
 
 func (c *Client) Probe(ctx context.Context, slug string) error {
@@ -420,7 +429,21 @@ func (c *Client) Dialer(ctx context.Context, slug string) (d Dialer, err error) 
 	var er *EstablishResponse
 	if er, err = c.Establish(ctx, slug); err == nil {
 		d = &dialer{
-			slug:   slug,
+			slug:   er.TunnelName,
+			client: c,
+			state:  er.WireGuardState,
+			config: er.TunnelConfig,
+		}
+	}
+
+	return
+}
+
+func (c *Client) DeployDialer(ctx context.Context, slug string) (d Dialer, err error) {
+	var er *EstablishResponse
+	if er, err = c.doEstablish(ctx, slug, false, true); err == nil {
+		d = &dialer{
+			slug:   er.TunnelName,
 			client: c,
 			state:  er.WireGuardState,
 			config: er.TunnelConfig,
@@ -449,6 +472,7 @@ func (c *Client) ConnectToTunnel(ctx context.Context, slug string) (d Dialer, er
 
 // TODO: refactor to struct
 type Dialer interface {
+	TunnelName() string
 	State() *wg.WireGuardState
 	Config() *wg.Config
 	DialContext(ctx context.Context, network, addr string) (net.Conn, error)
@@ -462,6 +486,10 @@ type dialer struct {
 	config *wg.Config
 
 	client *Client
+}
+
+func (d *dialer) TunnelName() string {
+	return d.slug
 }
 
 func (d *dialer) State() *wg.WireGuardState {
