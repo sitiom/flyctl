@@ -203,7 +203,7 @@ func (s *server) checkForConfigChange() (err error) {
 	return
 }
 
-func (s *server) buildTunnel(org *api.Organization, recycle bool) (tunnel *wg.Tunnel, err error) {
+func (s *server) buildTunnel(org *api.Organization, recycle bool, deploy bool) (tunnel *wg.Tunnel, name string, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -213,7 +213,7 @@ func (s *server) buildTunnel(org *api.Organization, recycle bool) (tunnel *wg.Tu
 	}
 
 	var state *wg.WireGuardState
-	if state, err = wireguard.StateForOrg(s.Client, org, "", "", recycle); err != nil {
+	if state, name, err = wireguard.StateForOrg(s.Client, org, "", "", recycle, deploy); err != nil {
 		return
 	}
 

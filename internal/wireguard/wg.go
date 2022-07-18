@@ -41,37 +41,63 @@ func generatePeerName(ctx context.Context, apiClient *api.Client) (string, error
 	return name, nil
 }
 
-func StateForOrg(apiClient *api.Client, org *api.Organization, regionCode string, name string, recycle bool) (*wg.WireGuardState, error) {
-	state, err := getWireGuardStateForOrg(org.Slug)
+func StateForOrg(apiClient *api.Client, org *api.Organization, regionCode string, name string, recycle bool, deploy bool) (*wg.WireGuardState, string, error) {
+	stateKey := org.Slug
+	if deploy {
+		stateKey = fmt.Sprintf("deploy--%s", org.Slug)
+	}
+
+	state, err := getWireGuardStateForOrg(stateKey)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if state != nil && !recycle {
-		return state, nil
+		return state, stateKey, nil
 	}
 
-	terminal.Debugf("Can't find matching WireGuard configuration; creating new one\n")
-
 	ctx := context.TODO()
+
 	if name == "" {
 		n, err := generatePeerName(ctx, apiClient)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 
 		name = fmt.Sprintf("interactive-agent-%s", n)
 	}
 
-	stateb, err := Create(apiClient, org, regionCode, name)
-	if err != nil {
-		return nil, err
+	terminal.Debugf("Can't find matching WireGuard configuration; creating new one\n")
+
+	var stateb *wg.WireGuardState
+	created := false
+
+	if deploy {
+		stateb, created, err = EnsureDeploy(apiClient, org, regionCode, name)
+		if err != nil {
+			return nil, "", err
+		}
+
+		if created {
+			if err := setWireGuardStateForOrg(stateKey, stateb); err != nil {
+				return nil, "", err
+			}
+			return stateb, stateKey, nil
+		}
 	}
 
-	if err := setWireGuardStateForOrg(org.Slug, stateb); err != nil {
-		return nil, err
+	if !created {
+		stateb, err = Create(apiClient, org, regionCode, name)
+		if err != nil {
+			return nil, "", err
+		}
+
+		if err := setWireGuardStateForOrg(org.Slug, stateb); err != nil {
+			return nil, "", err
+		}
+		return stateb, org.Slug, nil
 	}
 
-	return stateb, nil
+	return nil, "", errors.Errorf("unexpected state")
 }
 
 func Create(apiClient *api.Client, org *api.Organization, regionCode, name string) (*wg.WireGuardState, error) {
@@ -123,6 +149,43 @@ func Create(apiClient *api.Client, org *api.Organization, regionCode, name strin
 		LocalPrivate: privatekey,
 		Peer:         *data,
 	}, nil
+}
+
+func EnsureDeploy(apiClient *api.Client, org *api.Organization, regionCode, name string) (*wg.WireGuardState, bool, error) {
+	ctx := context.TODO()
+
+	if regionCode == "" {
+		regionCode = os.Getenv("FLYCTL_WG_REGION")
+	}
+
+	if regionCode == "" {
+		region, err := apiClient.ClosestWireguardGatewayRegion(ctx)
+		if err != nil {
+			return nil, false, err
+		}
+		regionCode = region.Code
+	}
+
+	fmt.Printf("Creating WireGuard peer in region \"%s\" for deploying apps in organization %s\n", regionCode, org.Slug)
+
+	pubkey, privatekey := C25519pair()
+
+	data, err := apiClient.EnsureWireGuardDeployPeer(ctx, org, regionCode, pubkey)
+	if err != nil || data.Created {
+		return nil, false, err
+	}
+
+	return &wg.WireGuardState{
+		Region:       regionCode,
+		Org:          org.Slug,
+		LocalPublic:  pubkey,
+		LocalPrivate: privatekey,
+		Peer: *&api.CreatedWireGuardPeer{
+			Peerip:     data.Peerip,
+			Pubkey:     data.Pubkey,
+			Endpointip: data.Endpointip,
+		},
+	}, true, nil
 }
 
 func C25519pair() (string, string) {

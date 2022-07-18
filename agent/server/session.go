@@ -149,8 +149,10 @@ var (
 	errMalformedEstablish = errors.New("malformed establish command")
 )
 
+// arg[0] = OrgSlug
+// arg[1] = Deploy type false/true
 func (s *session) doEstablish(ctx context.Context, recycle bool, args ...string) {
-	if !s.exactArgs(1, args, errMalformedEstablish) {
+	if !s.exactArgs(2, args, errMalformedEstablish) {
 		return
 	}
 
@@ -161,7 +163,7 @@ func (s *session) doEstablish(ctx context.Context, recycle bool, args ...string)
 		return
 	}
 
-	tunnel, err := s.srv.buildTunnel(org, recycle)
+	tunnel, name, err := s.srv.buildTunnel(org, recycle, args[1] == "true")
 	if err != nil {
 		s.error(err)
 
@@ -169,6 +171,7 @@ func (s *session) doEstablish(ctx context.Context, recycle bool, args ...string)
 	}
 
 	_ = s.marshal(agent.EstablishResponse{
+		TunnelName:     name,
 		WireGuardState: tunnel.State,
 		TunnelConfig:   tunnel.Config,
 	})

@@ -266,11 +266,11 @@ func buildRemoteClientOpts(ctx context.Context, apiClient *api.Client, appName, 
 	}
 
 	var dialer agent.Dialer
-	if dialer, err = agentclient.Dialer(ctx, app.Organization.Slug); err != nil {
+	if dialer, err = agentclient.DeployDialer(ctx, app.Organization.Slug); err != nil {
 		return
 	}
 
-	if err = agentclient.WaitForTunnel(ctx, app.Organization.Slug); err == nil {
+	if err = agentclient.WaitForTunnel(ctx, dialer.TunnelName()); err == nil {
 		opts = append(opts, dockerclient.WithDialContext(dialer.DialContext))
 	}
 

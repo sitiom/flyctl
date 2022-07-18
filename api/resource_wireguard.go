@@ -121,6 +121,45 @@ mutation($input: AddWireGuardPeerInput!) {
 	return &data.AddWireGuardPeer, nil
 }
 
+func (c *Client) EnsureWireGuardDeployPeer(ctx context.Context, org *Organization, region, pubkey string) (*EnsuredWireGuardDeployPeer, error) {
+	req := c.NewRequest(`
+mutation($input: EnsureWireGuardPeerInput!) {
+  ensureWireGuardDeployPeer(input: $input) {
+    created
+    peerip
+    endpointip
+    pubkey
+  }
+}
+`)
+
+	var nats bool
+
+	if os.Getenv("WG_NATS") != "" {
+		nats = true
+		fmt.Printf("Creating wiregard peer via NATS")
+	}
+
+	inputs := map[string]interface{}{
+		"organizationId": org.ID,
+		"pubkey":         pubkey,
+		"nats":           nats,
+	}
+
+	if region != "" {
+		inputs["region"] = region
+	}
+
+	req.Var("input", inputs)
+
+	data, err := c.RunWithContext(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	return &data.EnsureWireGuardDeployPeer, nil
+}
+
 func (c *Client) RemoveWireGuardPeer(ctx context.Context, org *Organization, name string) error {
 	req := c.NewRequest(`
 mutation($input: RemoveWireGuardPeerInput!) {

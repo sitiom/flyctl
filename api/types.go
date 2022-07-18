@@ -171,6 +171,7 @@ type Query struct {
 	ExtendVolume ExtendVolumePayload
 
 	AddWireGuardPeer              CreatedWireGuardPeer
+	EnsureWireGuardDeployPeer     EnsuredWireGuardDeployPeer
 	EstablishSSHKey               SSHCertificate
 	IssueCertificate              IssuedCertificate
 	CreateDelegatedWireGuardToken DelegatedWireGuardToken
@@ -215,6 +216,14 @@ type CreatedWireGuardPeer struct {
 	Peerip     string `json:"peerip"`
 	Endpointip string `json:"endpointip"`
 	Pubkey     string `json:"pubkey"`
+}
+
+type EnsuredWireGuardDeployPeer struct {
+	Peerip     string `json:"peerip"`
+	Name       string `json:"name"`
+	Endpointip string `json:"endpointip"`
+	Pubkey     string `json:"pubkey"`
+	Created    bool   `json:"created"`
 }
 
 type DeleteOrganizationMembershipPayload struct {
