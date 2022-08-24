@@ -42,13 +42,13 @@ type Client struct {
 // NewClient - creates a new Client, takes an access token
 func NewClient(accessToken, name, version string, logger Logger) *Client {
 
-	httpClient, _ := NewHTTPClient(logger, http.DefaultTransport)
+	httpClient := NewHTTPClient(logger, http.DefaultTransport)
 
 	url := fmt.Sprintf("%s/graphql", baseURL)
 
 	client := graphql.NewClient(url, graphql.WithHTTPClient(httpClient))
 
-	genqHttpClient, _ := NewHTTPClient(logger, &Transport{UnderlyingTransport: http.DefaultTransport, Token: accessToken, Ctx: context.Background()})
+	genqHttpClient := NewHTTPClient(logger, &Transport{UnderlyingTransport: http.DefaultTransport, Token: accessToken, Ctx: context.Background()})
 	genqClient := genq.NewClient(url, genqHttpClient)
 
 	userAgent := fmt.Sprintf("%s/%s", name, version)

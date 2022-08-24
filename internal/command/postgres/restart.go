@@ -88,10 +88,12 @@ func restartMachinesCluster(ctx context.Context, app *api.AppCompact) error {
 		io     = iostreams.FromContext(ctx)
 	)
 
-	flapsClient, err := flaps.New(ctx, app)
-	if err != nil {
-		return fmt.Errorf("list of machines could not be retrieved: %w", err)
+	flapsClient := flaps.FromContext(ctx)
+
+	if err := flapsClient.EstablishForApp(ctx, app); err != nil {
+		return err
 	}
+
 	// map of machine lease to machine
 	machines := make(map[string]*api.Machine)
 

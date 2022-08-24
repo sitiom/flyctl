@@ -124,9 +124,11 @@ func hasRequiredVersionOnMachines(leader *api.Machine, cluster, standalone strin
 }
 
 func fetchLeader(ctx context.Context, app *api.AppCompact, dialer agent.Dialer) (*api.Machine, error) {
-	flapsClient, err := flaps.New(ctx, app)
-	if err != nil {
-		return nil, fmt.Errorf("list of machines could not be retrieved: %w", err)
+
+	flapsClient := flaps.FromContext(ctx)
+
+	if err := flapsClient.EstablishForApp(ctx, app); err != nil {
+		return nil, err
 	}
 
 	members, err := flapsClient.List(ctx, "started")

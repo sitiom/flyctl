@@ -63,9 +63,10 @@ func runUpdate(ctx context.Context) error {
 		return fmt.Errorf("can't build tunnel for %s: %s", app.Organization.Slug, err)
 	}
 
-	flapsClient, err := flaps.New(ctx, app)
-	if err != nil {
-		return fmt.Errorf("list of machines could not be retrieved: %w", err)
+	flapsClient := flaps.FromContext(ctx)
+
+	if err := flapsClient.EstablishForApp(ctx, app); err != nil {
+		return err
 	}
 
 	// map of machine lease to machine
@@ -184,8 +185,9 @@ func runUpdate(ctx context.Context) error {
 func updateMachine(ctx context.Context, app *api.AppCompact, machine *api.Machine, image, version string) error {
 	io := iostreams.FromContext(ctx)
 
-	flaps, err := flaps.New(ctx, app)
-	if err != nil {
+	flaps := flaps.FromContext(ctx)
+
+	if err := flaps.EstablishForApp(ctx, app); err != nil {
 		return err
 	}
 

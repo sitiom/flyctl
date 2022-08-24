@@ -138,11 +138,11 @@ func showNomadImage(ctx context.Context, app *api.AppCompact) error {
 	)
 }
 
-func showMachineImage(ctx context.Context, app *api.AppCompact) error {
+func showMachineImage(ctx context.Context, app *api.AppCompact) (err error) {
 	io := iostreams.FromContext(ctx)
+	flaps := flaps.FromContext(ctx)
 
-	flaps, err := flaps.New(ctx, app)
-	if err != nil {
+	if err = flaps.EstablishForApp(ctx, app); err != nil {
 		return err
 	}
 

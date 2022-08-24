@@ -11,7 +11,7 @@ import (
 	"github.com/PuerkitoBio/rehttp"
 )
 
-func NewHTTPClient(logger Logger, transport http.RoundTripper) (*http.Client, error) {
+func NewHTTPClient(logger Logger, transport http.RoundTripper) *http.Client {
 	retryTransport := rehttp.NewTransport(
 		transport,
 		rehttp.RetryAll(
@@ -33,7 +33,7 @@ func NewHTTPClient(logger Logger, transport http.RoundTripper) (*http.Client, er
 		Transport: loggingTransport,
 	}
 
-	return httpClient, nil
+	return httpClient
 }
 
 type LoggingTransport struct {

@@ -99,8 +99,11 @@ func RunReleaseCommand(ctx context.Context, app *api.AppCompact, appConfig *app.
 	}
 
 	io := iostreams.FromContext(ctx)
+	flapsClient := flaps.FromContext(ctx)
 
-	flapsClient, err := flaps.New(ctx, app)
+	if err = flapsClient.EstablishForApp(ctx, app); err != nil {
+		return err
+	}
 
 	msg := fmt.Sprintf("Running release command: %s", appConfig.Deploy.ReleaseCommand)
 	spin := spinner.Run(io, msg)
@@ -196,7 +199,12 @@ func RunReleaseCommand(ctx context.Context, app *api.AppCompact, appConfig *app.
 
 func DeployMachinesApp(ctx context.Context, app *api.AppCompact, strategy string, machineConfig api.MachineConfig, appConfig *app.Config) (err error) {
 	io := iostreams.FromContext(ctx)
-	flapsClient, err := flaps.New(ctx, app)
+	flapsClient := flaps.FromContext(ctx)
+
+	if err = flapsClient.EstablishForApp(ctx, app); err != nil {
+		return err
+	}
+
 	if err != nil {
 		return
 	}

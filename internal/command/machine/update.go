@@ -52,9 +52,10 @@ func runUpdate(ctx context.Context) (err error) {
 		return err
 	}
 
-	flapsClient, err := flaps.New(ctx, app)
-	if err != nil {
-		return fmt.Errorf("could not make API client: %w", err)
+	flapsClient := flaps.FromContext(ctx)
+
+	if err = flapsClient.EstablishForApp(ctx, app); err != nil {
+		return err
 	}
 
 	machine, err := flapsClient.Get(ctx, machineID)

@@ -13,52 +13,62 @@ import (
 	"github.com/samber/lo"
 	"github.com/superfly/flyctl/agent"
 	"github.com/superfly/flyctl/api"
-	"github.com/superfly/flyctl/flyctl"
 	"github.com/superfly/flyctl/internal/logger"
-
-	"github.com/superfly/flyctl/client"
+	"github.com/superfly/flyctl/wg"
 )
 
 var NonceHeader = "fly-machine-lease-nonce"
 
 type Client struct {
 	app        *api.AppCompact
-	peerIP     string
 	authToken  string
 	httpClient *http.Client
+	gqlClient  *api.Client
+	wgState    *wg.WireGuardState
+	logger     *logger.Logger
 }
 
-func New(ctx context.Context, app *api.AppCompact) (*Client, error) {
-	logger := logger.MaybeFromContext(ctx)
+func New(ctx context.Context, gqlClient *api.Client, token string) *Client {
+	return &Client{
+		authToken: token,
+		logger:    logger.MaybeFromContext(ctx),
+		gqlClient: gqlClient,
+	}
+}
 
-	client := client.FromContext(ctx).API()
-	agentclient, err := agent.Establish(ctx, client)
+func (f *Client) EstablishForApp(ctx context.Context, app *api.AppCompact) (err error) {
+
+	f.app = app
+
+	agentClient, err := agent.Establish(ctx, f.gqlClient)
+
 	if err != nil {
-		return nil, fmt.Errorf("error establishing agent: %w", err)
+		return fmt.Errorf("error establishing agent: %w", err)
 	}
 
-	dialer, err := agentclient.Dialer(ctx, app.Organization.Slug)
+	agentDialer, err := agentClient.ConnectToTunnel(ctx, app.Organization.Slug)
+
 	if err != nil {
-		return nil, fmt.Errorf("flaps: can't build tunnel for %s: %w", app.Organization.Slug, err)
+		return fmt.Errorf("flaps: can't build tunnel for %s: %w", f.app.Organization.Slug, err)
 	}
+
+	f.wgState = agentDialer.State()
 
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			return dialer.DialContext(ctx, network, addr)
+			return agentDialer.DialContext(ctx, network, addr)
 		},
 	}
 
-	httpClient, err := api.NewHTTPClient(logger, transport)
+	httpClient := api.NewHTTPClient(f.logger, transport)
+
 	if err != nil {
-		return nil, fmt.Errorf("flaps: can't setup HTTP client for %s: %w", app.Organization.Slug, err)
+		return fmt.Errorf("flaps: can't setup HTTP client for %s: %w", f.app.Organization.Slug, err)
 	}
 
-	return &Client{
-		app:        app,
-		peerIP:     resolvePeerIP(dialer.State().Peer.Peerip),
-		authToken:  flyctl.GetAPIToken(),
-		httpClient: httpClient,
-	}, nil
+	f.httpClient = httpClient
+
+	return
 }
 
 func (f *Client) CreateApp(ctx context.Context, name string, org string) (err error) {
@@ -273,16 +283,20 @@ func (f *Client) sendRequest(ctx context.Context, method, endpoint string, in, o
 }
 
 func (f *Client) NewRequest(ctx context.Context, method, path string, in interface{}, headers map[string][]string) (*http.Request, error) {
+
+	if f.app == nil {
+		return nil, errors.New("flaps requests require connecting to the target organization via EstablishForApp()")
+	}
+
 	var (
-		body   io.Reader
-		peerIP = f.peerIP
+		body io.Reader
 	)
 
 	if headers == nil {
 		headers = make(map[string][]string)
 	}
 
-	targetEndpoint := fmt.Sprintf("http://[%s]:4280/v1/apps/%s/machines%s", peerIP, f.app.Name, path)
+	targetEndpoint := fmt.Sprintf("http://[%s]:4280/v1/apps/%s/machines%s", f.wgState.Peer.Peerip, f.app.Name, path)
 
 	if in != nil {
 		b, err := json.Marshal(in)

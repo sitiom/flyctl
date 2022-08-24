@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/superfly/flyctl/api"
+	"github.com/superfly/flyctl/flaps"
 	"github.com/superfly/flyctl/iostreams"
 
 	"github.com/superfly/flyctl/client"
@@ -61,7 +62,7 @@ var commonPreparers = []Preparer{
 	initTaskManager,
 	startQueryingForNewRelease,
 	promptToUpdate,
-	initClient,
+	initClients,
 	killOldAgent,
 }
 
@@ -280,17 +281,21 @@ func loadConfig(ctx context.Context) (context.Context, error) {
 	return config.NewContext(ctx, cfg), nil
 }
 
-func initClient(ctx context.Context) (context.Context, error) {
+// initClients sets up both the graphql and REST clients
+func initClients(ctx context.Context) (context.Context, error) {
 	logger := logger.FromContext(ctx)
 	cfg := config.FromContext(ctx)
 
 	// TODO: refactor so that api package does NOT depend on global state
 	api.SetBaseURL(cfg.APIBaseURL)
 	api.SetErrorLog(cfg.LogGQLErrors)
-	c := client.FromToken(cfg.AccessToken)
-	logger.Debug("client initialized.")
+	gqlClient := client.FromToken(cfg.AccessToken)
+	gqlContext := client.NewContext(ctx, gqlClient)
+	flapsClient := flaps.New(ctx, gqlClient.API(), cfg.AccessToken)
+	initContext := flaps.NewContext(gqlContext, flapsClient)
 
-	return client.NewContext(ctx, c), nil
+	logger.Debug("client initialized.")
+	return initContext, nil
 }
 
 func initTaskManager(ctx context.Context) (context.Context, error) {

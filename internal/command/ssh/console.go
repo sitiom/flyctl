@@ -209,8 +209,9 @@ func sshConnect(p *SSHParams, addr string) error {
 
 func addrForMachines(ctx context.Context, app *api.AppCompact) (addr string, err error) {
 	out := iostreams.FromContext(ctx).Out
-	flapsClient, err := flaps.New(ctx, app)
-	if err != nil {
+	flapsClient := flaps.FromContext(ctx)
+
+	if err = flapsClient.EstablishForApp(ctx, app); err != nil {
 		return "", err
 	}
 

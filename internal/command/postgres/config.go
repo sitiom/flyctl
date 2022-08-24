@@ -361,12 +361,13 @@ func updateMachinesConfig(ctx context.Context, app *api.AppCompact, changes map[
 		cmd    = flypg.CommandFromContext(ctx)
 	)
 
-	fclt, err := flaps.New(ctx, app)
-	if err != nil {
-		return fmt.Errorf("list of machines could not be retrieved: %w", err)
+	flaps := flaps.FromContext(ctx)
+
+	if err = flaps.EstablishForApp(ctx, app); err != nil {
+		return err
 	}
 
-	machines, err := fclt.List(ctx, "started")
+	machines, err := flaps.List(ctx, "started")
 	if err != nil {
 		return fmt.Errorf("machines could not be retrieved")
 	}
@@ -396,12 +397,6 @@ func updateMachinesConfig(ctx context.Context, app *api.AppCompact, changes map[
 
 	if leader == nil {
 		return fmt.Errorf("no leader found")
-	}
-
-	// obtain lease on leader
-	flaps, err := flaps.New(ctx, app)
-	if err != nil {
-		return err
 	}
 
 	// get lease on machine

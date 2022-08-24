@@ -61,9 +61,10 @@ func runMachineRemove(ctx context.Context) (err error) {
 		return err
 	}
 
-	flapsClient, err := flaps.New(ctx, app)
-	if err != nil {
-		return fmt.Errorf("could not make flaps client: %w", err)
+	flapsClient := flaps.FromContext(ctx)
+
+	if err = flapsClient.EstablishForApp(ctx, app); err != nil {
+		return err
 	}
 
 	// check if machine even exists

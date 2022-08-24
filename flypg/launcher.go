@@ -63,8 +63,9 @@ func (l *Launcher) LaunchMachinesPostgres(ctx context.Context, config *CreateClu
 
 	io := iostreams.FromContext(ctx)
 
-	flaps, err := flaps.New(ctx, app)
-	if err != nil {
+	flaps := flaps.FromContext(ctx)
+
+	if err = flaps.EstablishForApp(ctx, app); err != nil {
 		return err
 	}
 
