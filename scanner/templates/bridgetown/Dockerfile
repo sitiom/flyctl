@@ -1,0 +1,132 @@
+# syntax = docker/dockerfile:experimental
+
+# Dockerfile used to build a deployable image for a Bridgetown application.
+# Adjust as required.
+#
+# Common adjustments you may need to make over time:
+#  * Modify version numbers for Ruby, Bundler, and other products.
+#  * Add library packages needed at build time for your gems, node modules.
+#  * Add deployment packages needed by your application
+
+#######################################################################
+
+# Learn more about the chosen Ruby stack, Fullstaq Ruby, here:
+#   https://github.com/evilmartians/fullstaq-ruby-docker.
+#
+# We recommend using the highest patch level for better security and
+# performance.
+
+ARG RUBY_VERSION={{ .rubyVersion }}
+ARG VARIANT=jemalloc-slim
+FROM quay.io/evl.ms/fullstaq-ruby:${RUBY_VERSION}-${VARIANT} as base
+
+{{ if .node -}}
+ARG NODE_VERSION={{ .nodeVersion }}
+{{ end -}}
+ARG BUNDLER_VERSION={{ .bundlerVersion }}
+
+ARG BRIDGETOWN_ENV=production
+ENV BRIDGETOWN_ENV=${RAILS_ENV}
+
+### ENV RAILS_LOG_TO_STDOUT true ### FIXME!
+
+ARG BUNDLE_WITHOUT=development:test
+ARG BUNDLE_PATH=vendor/bundle
+ENV BUNDLE_PATH ${BUNDLE_PATH}
+ENV BUNDLE_WITHOUT ${BUNDLE_WITHOUT}
+
+RUN mkdir /app
+WORKDIR /app
+RUN mkdir -p tmp/pids
+
+{{ if .node -}}
+RUN curl https://get.volta.sh | bash
+ENV VOLTA_HOME /root/.volta
+ENV PATH $VOLTA_HOME/bin:/usr/local/bin:$PATH
+RUN volta install node@${NODE_VERSION} && volta install yarn
+
+{{ end -}}
+#######################################################################
+
+# install packages only needed at build time
+
+FROM base as build_deps
+
+ARG BUILD_PACKAGES="git build-essential libpq-dev wget vim curl gzip xz-utils libsqlite3-dev"
+ENV BUILD_PACKAGES ${BUILD_PACKAGES}
+
+RUN --mount=type=cache,id=dev-apt-cache,sharing=locked,target=/var/cache/apt \
+    --mount=type=cache,id=dev-apt-lib,sharing=locked,target=/var/lib/apt \
+    apt-get update -qq && \
+    apt-get install --no-install-recommends -y ${BUILD_PACKAGES} \
+    && rm -rf /var/lib/apt/lists /var/cache/apt/archives
+
+#######################################################################
+
+# install gems
+
+FROM build_deps as gems
+
+RUN gem update --system --no-document && \
+    gem install -N bundler -v ${BUNDLER_VERSION}
+
+COPY Gemfile* ./
+RUN bundle install &&  rm -rf vendor/bundle/ruby/*/cache
+
+{{ if .node -}}
+#######################################################################
+
+# install node modules
+
+FROM build_deps as node_modules
+
+COPY package*json ./
+{{ if .yarn -}}
+COPY yarn.* ./
+RUN yarn install;
+{{ else -}}
+RUN npm install
+{{ end }}
+{{ end -}}
+#######################################################################
+
+# install deployment packages
+
+FROM base
+
+ARG DEPLOY_PACKAGES="postgresql-client file vim curl gzip libsqlite3-0"
+ENV DEPLOY_PACKAGES=${DEPLOY_PACKAGES}
+
+RUN --mount=type=cache,id=prod-apt-cache,sharing=locked,target=/var/cache/apt \
+    --mount=type=cache,id=prod-apt-lib,sharing=locked,target=/var/lib/apt \
+    apt-get update -qq && \
+    apt-get install --no-install-recommends -y \
+    ${DEPLOY_PACKAGES} \
+    && rm -rf /var/lib/apt/lists /var/cache/apt/archives
+
+# copy installed gems
+COPY --from=gems /app /app
+COPY --from=gems /usr/lib/fullstaq-ruby/versions /usr/lib/fullstaq-ruby/versions
+COPY --from=gems /usr/local/bundle /usr/local/bundle
+
+{{ if .node -}}
+# copy installed node modules
+COPY --from=node_modules /app/node_modules /app/node_modules
+
+{{ end -}}
+#######################################################################
+
+# Deploy your application
+COPY . .
+
+# Adjust binstubs to run on Linux and set current working directory
+RUN chmod +x /app/bin/* && \
+    sed -i 's/ruby.exe/ruby/' /app/bin/* && \
+    sed -i '/^#!/aDir.chdir File.expand_path("..", __dir__)' /app/bin/*
+
+RUN bin/bridgetown deploy 
+
+# Default server start instructions.  Generally Overridden by fly.toml.
+ARG SERVER_COMMAND="bin/bridgetown start"
+ENV SERVER_COMMAND ${SERVER_COMMAND}
+CMD ${SERVER_COMMAND}
