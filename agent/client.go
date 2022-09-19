@@ -21,6 +21,7 @@ import (
 
 	"github.com/superfly/flyctl/agent/internal/proto"
 	"github.com/superfly/flyctl/iostreams"
+	"github.com/superfly/flyctl/terminal"
 	"github.com/superfly/flyctl/wg"
 
 	"github.com/superfly/flyctl/api"
@@ -360,7 +361,9 @@ func (c *Client) WaitForDNS(parent context.Context, dialer Dialer, slug string, 
 	io.StopProgressIndicator()
 
 	for {
-		if _, err = c.Resolve(ctx, slug, host); !errors.Is(err, ErrNoSuchHost) {
+		var addr string
+		if addr, err = c.Resolve(ctx, slug, host); !errors.Is(err, ErrNoSuchHost) {
+			terminal.Debug("resolved to: ", addr)
 			break
 		}
 

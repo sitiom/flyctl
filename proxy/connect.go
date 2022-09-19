@@ -11,6 +11,7 @@ import (
 	"github.com/superfly/flyctl/client"
 	"github.com/superfly/flyctl/iostreams"
 	"github.com/superfly/flyctl/ip"
+	"github.com/superfly/flyctl/terminal"
 )
 
 type ConnectParams struct {
@@ -69,9 +70,11 @@ func NewServer(ctx context.Context, p *ConnectParams) (*Server, error) {
 			if err := agentclient.WaitForDNS(ctx, p.Dialer, orgSlug, p.RemoteHost); err != nil {
 				return nil, fmt.Errorf("%s: %w", p.RemoteHost, err)
 			}
+			terminal.Debug("resolved remote host: ", p.RemoteHost)
+			remoteAddr = fmt.Sprintf("%s:%s", p.RemoteHost, remotePort)
+		} else {
+			remoteAddr = fmt.Sprintf("[%s]:%s", p.RemoteHost, remotePort)
 		}
-
-		remoteAddr = fmt.Sprintf("[%s]:%s", p.RemoteHost, remotePort)
 	}
 
 	var listener net.Listener
