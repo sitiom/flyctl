@@ -90,10 +90,14 @@ func DeployWithConfig(ctx context.Context, appConfig *app.Config) (err error) {
 		appConfig.Env = map[string]string{}
 	}
 
+	img := &imgsrc.DeploymentImage{}
+
 	// Fetch an image ref or build from source to get the final image reference to deploy
-	img, err := determineImage(ctx, appConfig)
-	if err != nil {
-		return fmt.Errorf("failed to fetch an image or build from source: %w", err)
+	if flag.GetString(ctx, "image") != "" {
+		img, err = determineImage(ctx, appConfig)
+		if err != nil {
+			return fmt.Errorf("failed to fetch an image or build from source: %w", err)
+		}
 	}
 
 	if flag.GetBuildOnly(ctx) {

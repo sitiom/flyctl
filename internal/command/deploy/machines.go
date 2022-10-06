@@ -26,9 +26,7 @@ func createMachinesRelease(ctx context.Context, config *app.Config, img *imgsrc.
 		return
 	}
 
-	machineConfig := api.MachineConfig{
-		Image: img.Tag,
-	}
+	machineConfig := api.MachineConfig{}
 
 	// Convert the new, slimmer http service config to standard services
 	if config.HttpService != nil {
@@ -81,6 +79,10 @@ func createMachinesRelease(ctx context.Context, config *app.Config, img *imgsrc.
 
 	if config.Checks != nil {
 		machineConfig.Checks = config.Checks
+	}
+
+	if img != nil {
+		machineConfig.Image = img.Tag
 	}
 
 	// Run validations against struct types and their JSON tags
@@ -209,24 +211,9 @@ func DeployMachinesApp(ctx context.Context, app *api.AppCompact, strategy string
 		strategy = "rolling"
 	}
 
-	var regionCode string
-	if appConfig != nil {
-		regionCode = appConfig.PrimaryRegion
-	}
-
 	msg := fmt.Sprintf("Deploying with %s strategy", strategy)
 	spin := spinner.Run(io, msg)
 	defer spin.StopWithSuccess()
-
-	machineConfig.Metadata = map[string]string{"process_group": "app"}
-	machineConfig.Init.Cmd = nil
-
-	launchInput := api.LaunchMachineInput{
-		AppID:   app.Name,
-		OrgSlug: app.Organization.ID,
-		Config:  &machineConfig,
-		Region:  regionCode,
-	}
 
 	machines, err := flapsClient.ListActive(ctx)
 	if err != nil {
@@ -234,7 +221,6 @@ func DeployMachinesApp(ctx context.Context, app *api.AppCompact, strategy string
 	}
 
 	if len(machines) > 0 {
-
 		for _, machine := range machines {
 			leaseTTL := api.IntPointer(30)
 			lease, err := flapsClient.GetLease(ctx, machine.ID, leaseTTL)
@@ -247,24 +233,18 @@ func DeployMachinesApp(ctx context.Context, app *api.AppCompact, strategy string
 		}
 
 		for _, machine := range machines {
-			launchInput.ID = machine.ID
-
-			// We assume a config with no image specificed means the deploy should recreate machines
-			// with the existing config. For example, for applying recently set secrets.
-			if machineConfig.Image == "" {
-				launchInput.Config = machine.Config
+			// Base initial launch template from the machines existing configuration.
+			launchInput := api.LaunchMachineInput{
+				AppID:   app.Name,
+				Config:  machine.Config, // Base config
+				ID:      machine.ID,
+				Name:    machine.Name,
+				OrgSlug: app.Organization.ID,
+				Region:  machine.Region,
 			}
 
-			launchInput.Region = machine.Region
-
-			if machine.Config.Guest != nil {
-				launchInput.Config.Guest = machine.Config.Guest
-			}
-
-			// Until mounts are supported in fly.toml, ensure deployments
-			// maintain any existing volume attachments
-			if machine.Config.Mounts != nil {
-				launchInput.Config.Mounts = machine.Config.Mounts
+			if machineConfig.Image != "" {
+				launchInput.Config.Image = machineConfig.Image
 			}
 
 			updateResult, err := flapsClient.Update(ctx, launchInput, machine.LeaseNonce)
@@ -286,6 +266,22 @@ func DeployMachinesApp(ctx context.Context, app *api.AppCompact, strategy string
 		}
 
 	} else {
+		// Provision Machine from scratch
+		var regionCode string
+		if appConfig != nil {
+			regionCode = appConfig.PrimaryRegion
+		}
+
+		launchInput := api.LaunchMachineInput{
+			AppID:   app.Name,
+			OrgSlug: app.Organization.ID,
+			Config:  &machineConfig,
+			Region:  regionCode,
+		}
+
+		machineConfig.Metadata = map[string]string{"process_group": "app"}
+		machineConfig.Init.Cmd = nil
+
 		fmt.Fprintf(io.Out, "Launching VM with image %s\n", launchInput.Config.Image)
 		_, err = flapsClient.Launch(ctx, launchInput)
 		if err != nil {
