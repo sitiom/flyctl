@@ -77,10 +77,6 @@ func createMachinesRelease(ctx context.Context, config *app.Config, img *imgsrc.
 		machineConfig.Metrics = config.Metrics
 	}
 
-	if config.Checks != nil {
-		machineConfig.Checks = config.Checks
-	}
-
 	if img != nil {
 		machineConfig.Image = img.Tag
 	}
@@ -220,53 +216,8 @@ func DeployMachinesApp(ctx context.Context, app *api.AppCompact, strategy string
 		return
 	}
 
-	if len(machines) > 0 {
-		for _, machine := range machines {
-			leaseTTL := api.IntPointer(30)
-			lease, err := flapsClient.GetLease(ctx, machine.ID, leaseTTL)
-			if err != nil {
-				return err
-			}
-			machine.LeaseNonce = lease.Data.Nonce
-
-			defer releaseLease(ctx, flapsClient, machine)
-		}
-
-		for _, machine := range machines {
-			// Base initial launch template from the machines existing configuration.
-			launchInput := api.LaunchMachineInput{
-				AppID:   app.Name,
-				Config:  machine.Config, // Base config
-				ID:      machine.ID,
-				Name:    machine.Name,
-				OrgSlug: app.Organization.ID,
-				Region:  machine.Region,
-			}
-
-			if machineConfig.Image != "" {
-				launchInput.Config.Image = machineConfig.Image
-			}
-
-			updateResult, err := flapsClient.Update(ctx, launchInput, machine.LeaseNonce)
-			if err != nil {
-				if strategy != "immediate" {
-					return err
-
-				} else {
-					fmt.Printf("Continuing after error: %s\n", err)
-				}
-			}
-
-			if strategy != "immediate" {
-				err = flapsClient.Wait(ctx, updateResult, "started")
-				if err != nil {
-					return err
-				}
-			}
-		}
-
-	} else {
-		// Provision Machine from scratch
+	// Deploy Machine from scratch ( I don't really like this. )
+	if len(machines) == 0 {
 		var regionCode string
 		if appConfig != nil {
 			regionCode = appConfig.PrimaryRegion
@@ -284,8 +235,51 @@ func DeployMachinesApp(ctx context.Context, app *api.AppCompact, strategy string
 
 		fmt.Fprintf(io.Out, "Launching VM with image %s\n", launchInput.Config.Image)
 		_, err = flapsClient.Launch(ctx, launchInput)
+
+		return
+	}
+
+	// Deploy to existing cluster
+	for _, machine := range machines {
+		leaseTTL := api.IntPointer(30)
+		lease, err := flapsClient.GetLease(ctx, machine.ID, leaseTTL)
 		if err != nil {
 			return err
+		}
+		machine.LeaseNonce = lease.Data.Nonce
+
+		defer releaseLease(ctx, flapsClient, machine)
+	}
+
+	for _, machine := range machines {
+		launchInput := api.LaunchMachineInput{
+			AppID:   app.Name,
+			Config:  machine.Config, // original configuration
+			ID:      machine.ID,
+			Name:    machine.Name,
+			OrgSlug: app.Organization.ID,
+			Region:  machine.Region,
+		}
+
+		if machineConfig.Image != "" {
+			launchInput.Config.Image = machineConfig.Image
+		}
+
+		updateResult, err := flapsClient.Update(ctx, launchInput, machine.LeaseNonce)
+		if err != nil {
+			if strategy != "immediate" {
+				return err
+
+			} else {
+				fmt.Printf("Continuing after error: %s\n", err)
+			}
+		}
+
+		if strategy != "immediate" {
+			err = flapsClient.Wait(ctx, updateResult, "started")
+			if err != nil {
+				return err
+			}
 		}
 	}
 
